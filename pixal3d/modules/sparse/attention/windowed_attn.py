@@ -11,6 +11,26 @@ __all__ = [
 ]
 
 
+def _sdpa_by_seqlen(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, q_seq_lens, kv_seq_lens=None) -> torch.Tensor:
+    from torch.nn.functional import scaled_dot_product_attention as sdpa
+
+    if kv_seq_lens is None:
+        kv_seq_lens = q_seq_lens
+    outs = []
+    q_start = 0
+    kv_start = 0
+    for q_len, kv_len in zip(q_seq_lens, kv_seq_lens):
+        q_len = int(q_len)
+        kv_len = int(kv_len)
+        q_part = q[q_start:q_start + q_len].permute(1, 0, 2).unsqueeze(0)
+        k_part = k[kv_start:kv_start + kv_len].permute(1, 0, 2).unsqueeze(0)
+        v_part = v[kv_start:kv_start + kv_len].permute(1, 0, 2).unsqueeze(0)
+        outs.append(sdpa(q_part, k_part, v_part).squeeze(0).permute(1, 0, 2))
+        q_start += q_len
+        kv_start += kv_len
+    return torch.cat(outs, dim=0)
+
+
 def calc_window_partition(
     tensor: SparseTensor,
     window_size: Union[int, Tuple[int, ...]],
@@ -120,6 +140,16 @@ def sparse_windowed_scaled_dot_product_self_attention(
         if 'flash_attn' not in globals():
             import flash_attn
         out = flash_attn.flash_attn_varlen_qkvpacked_func(qkv_feats, **attn_func_args)  # [M, H, C]
+    elif config.ATTN in {'sdpa', 'naive'}:
+        q, k, v = qkv_feats.unbind(dim=1)
+        out = _sdpa_by_seqlen(q, k, v, seq_lens)
+    elif config.ATTN == 'flash_attn_4':
+        if 'flash_attn_4' not in globals():
+            from flash_attn.cute import flash_attn_varlen_func as flash_attn_4_varlen_func
+        q, k, v = qkv_feats.unbind(dim=1)
+        out, _ = flash_attn_4_varlen_func(q, k, v, **attn_func_args)
+    else:
+        raise ValueError(f"Unknown sparse attention module: {config.ATTN}")
 
     out = out[bwd_indices]      # [T, H, C]
 
@@ -199,6 +229,11 @@ def sparse_windowed_scaled_dot_product_cross_attention(
             cu_seqlens_q=q_attn_func_args['cu_seqlens_q'], cu_seqlens_k=kv_attn_func_args['cu_seqlens_k'],
             max_seqlen_q=q_attn_func_args['max_seqlen_q'], max_seqlen_k=kv_attn_func_args['max_seqlen_k'],
         )  # [M, H, C]
+    elif config.ATTN in {'sdpa', 'naive'}:
+        k, v = kv_feats.unbind(dim=1)
+        out = _sdpa_by_seqlen(q_feats, k, v, q_seq_lens, kv_seq_lens)
+    else:
+        raise ValueError(f"Unknown sparse attention module: {config.ATTN}")
 
     out = out[q_bwd_indices]      # [T, H, C]
 

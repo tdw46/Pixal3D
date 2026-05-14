@@ -14,6 +14,28 @@ __all__ = [
 ]
 
 
+def _segment_reduce_mps_compatible(values: torch.Tensor, op: str, lengths: torch.Tensor) -> torch.Tensor:
+    if values.device.type != 'mps':
+        return torch.segment_reduce(values, reduce=op, lengths=lengths)
+
+    batch = torch.repeat_interleave(
+        torch.arange(lengths.shape[0], device=values.device),
+        lengths,
+    )
+    out_shape = (int(lengths.shape[0]), *values.shape[1:])
+    if op in {'sum', 'mean'}:
+        reduced = torch.zeros(out_shape, dtype=values.dtype, device=values.device)
+        reduced.index_add_(0, batch, values)
+        if op == 'mean':
+            denom = lengths.clamp_min(1).to(dtype=values.dtype)
+            view_shape = (denom.shape[0],) + (1,) * (values.ndim - 1)
+            reduced = reduced / denom.reshape(view_shape)
+        return reduced
+    if op == 'prod':
+        return torch.stack([values[slice(start.item(), stop.item())].prod(dim=0) for start, stop in zip(lengths.cumsum(0) - lengths, lengths.cumsum(0))], dim=0)
+    raise ValueError(f"Unsupported reduce operation: {op}")
+
+
 class VarLenTensor:
     """
     Sequential tensor with variable length.
@@ -280,7 +302,7 @@ class VarLenTensor:
         if dim is None or 0 in dim:
             return red
         
-        red = torch.segment_reduce(red, reduce=op, lengths=self.seqlen)
+        red = _segment_reduce_mps_compatible(red, op, self.seqlen)
         return red
     
     def mean(self, dim: Optional[Union[int, Tuple[int,...]]] = None, keepdim: bool = False) -> torch.Tensor:

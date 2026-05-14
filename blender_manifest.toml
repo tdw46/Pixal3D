@@ -1,0 +1,150 @@
+schema_version = "1.0.0"
+
+id = "beyond_pixal3d"
+version = "0.1.0"
+name = "Beyond Pixal3D"
+tagline = "Generate and import Pixal3D image-to-3D assets from the viewport"
+maintainer = "BeyondDev (Tyler Walker)"
+type = "add-on"
+
+website = "https://github.com/tdw46/Pixal3D"
+tags = ["3D View", "Import-Export", "Mesh"]
+
+blender_version_min = "5.0.0"
+blender_version_max = "5.9.999"
+platforms = ["macos-arm64", "macos-x64", "linux-x64", "windows-x64"]
+
+license = ["SPDX:LicenseRef-Pixal3D-Academic"]
+
+copyright = [
+  "2026 TencentARC",
+  "2026 Tyler Walker",
+]
+
+wheels = [
+  "./wheels/cffi-1.17.1-cp311-cp311-macosx_10_9_x86_64.whl",
+  "./wheels/cffi-2.0.0-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/pycparser-2.23-py3-none-any.whl",
+  "./wheels/pyobjc_core-11.1-cp311-cp311-macosx_10_9_universal2.whl",
+  "./wheels/pyobjc_framework_cocoa-11.1-cp311-cp311-macosx_10_9_universal2.whl",
+  "./wheels/pyobjc_framework_webkit-11.1-cp311-cp311-macosx_10_9_universal2.whl",
+  "./wheels/pywebview-3.4-py3-none-any.whl",
+  "./wheels/cache_metal/accelerate-1.13.0-py3-none-any.whl",
+  "./wheels/cache_metal/aiofiles-24.1.0-py3-none-any.whl",
+  "./wheels/cache_metal/annotated_doc-0.0.4-py3-none-any.whl",
+  "./wheels/cache_metal/annotated_types-0.7.0-py3-none-any.whl",
+  "./wheels/cache_metal/anyio-4.13.0-py3-none-any.whl",
+  "./wheels/cache_metal/brotli-1.2.0-cp311-cp311-macosx_10_9_universal2.whl",
+  "./wheels/cache_metal/certifi-2026.4.22-py3-none-any.whl",
+  "./wheels/cache_metal/charset_normalizer-3.4.7-cp311-cp311-macosx_10_9_universal2.whl",
+  "./wheels/cache_metal/click-8.3.3-py3-none-any.whl",
+  "./wheels/cache_metal/diffusers-0.37.1-py3-none-any.whl",
+  "./wheels/cache_metal/easydict-1.13-py3-none-any.whl",
+  "./wheels/cache_metal/fastapi-0.136.1-py3-none-any.whl",
+  "./wheels/cache_metal/ffmpy-1.0.0-py3-none-any.whl",
+  "./wheels/cache_metal/filelock-3.29.0-py3-none-any.whl",
+  "./wheels/cache_metal/fsspec-2026.4.0-py3-none-any.whl",
+  "./wheels/cache_metal/glcontext-3.0.0-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/gradio-6.0.1-py3-none-any.whl",
+  "./wheels/cache_metal/gradio_client-2.0.0-py3-none-any.whl",
+  "./wheels/cache_metal/groovy-0.1.2-py3-none-any.whl",
+  "./wheels/cache_metal/h11-0.16.0-py3-none-any.whl",
+  "./wheels/cache_metal/hf_xet-1.5.0-cp37-abi3-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/httpcore-1.0.9-py3-none-any.whl",
+  "./wheels/cache_metal/httpx-0.28.1-py3-none-any.whl",
+  "./wheels/cache_metal/huggingface_hub-0.36.2-py3-none-any.whl",
+  "./wheels/cache_metal/idna-3.15-py3-none-any.whl",
+  "./wheels/cache_metal/imageio-2.37.2-py3-none-any.whl",
+  "./wheels/cache_metal/imageio_ffmpeg-0.6.0-py3-none-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/importlib_metadata-9.0.0-py3-none-any.whl",
+  "./wheels/cache_metal/jinja2-3.1.6-py3-none-any.whl",
+  "./wheels/cache_metal/kornia-0.8.2-py2.py3-none-any.whl",
+  "./wheels/cache_metal/kornia_rs-0.1.11-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/markdown_it_py-4.2.0-py3-none-any.whl",
+  "./wheels/cache_metal/markupsafe-3.0.3-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/mdurl-0.1.2-py3-none-any.whl",
+  "./wheels/cache_metal/moderngl-5.12.0-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/moge-2.0.0-py3-none-any.whl",
+  "./wheels/cache_metal/mpmath-1.3.0-py3-none-any.whl",
+  "./wheels/cache_metal/networkx-3.6.1-py3-none-any.whl",
+  "./wheels/cache_metal/numpy-2.2.6-cp311-cp311-macosx_14_0_arm64.whl",
+  "./wheels/cache_metal/opencv_python_headless-4.12.0.88-cp37-abi3-macosx_13_0_arm64.whl",
+  "./wheels/cache_metal/orjson-3.11.9-cp311-cp311-macosx_15_0_arm64.whl",
+  "./wheels/cache_metal/packaging-26.2-py3-none-any.whl",
+  "./wheels/cache_metal/pandas-2.3.3-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/pillow-12.0.0-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/pipeline-1.0.0-py3-none-any.whl",
+  "./wheels/cache_metal/plyfile-1.1.3-py3-none-any.whl",
+  "./wheels/cache_metal/psutil-7.2.2-cp36-abi3-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/pydantic-2.12.4-py3-none-any.whl",
+  "./wheels/cache_metal/pydantic_core-2.41.5-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/pydub-0.25.1-py2.py3-none-any.whl",
+  "./wheels/cache_metal/pygments-2.20.0-py3-none-any.whl",
+  "./wheels/cache_metal/python_dateutil-2.9.0.post0-py2.py3-none-any.whl",
+  "./wheels/cache_metal/python_multipart-0.0.28-py3-none-any.whl",
+  "./wheels/cache_metal/pytz-2026.2-py2.py3-none-any.whl",
+  "./wheels/cache_metal/pyyaml-6.0.3-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/regex-2026.5.9-cp311-cp311-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/requests-2.34.1-py3-none-any.whl",
+  "./wheels/cache_metal/rich-15.0.0-py3-none-any.whl",
+  "./wheels/cache_metal/safehttpx-0.1.7-py3-none-any.whl",
+  "./wheels/cache_metal/safetensors-0.7.0-cp38-abi3-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/scipy-1.17.1-cp311-cp311-macosx_14_0_arm64.whl",
+  "./wheels/cache_metal/semantic_version-2.10.0-py2.py3-none-any.whl",
+  "./wheels/cache_metal/setuptools-81.0.0-py3-none-any.whl",
+  "./wheels/cache_metal/shellingham-1.5.4-py2.py3-none-any.whl",
+  "./wheels/cache_metal/six-1.17.0-py2.py3-none-any.whl",
+  "./wheels/cache_metal/starlette-0.52.1-py3-none-any.whl",
+  "./wheels/cache_metal/sympy-1.14.0-py3-none-any.whl",
+  "./wheels/cache_metal/timm-1.0.22-py3-none-any.whl",
+  "./wheels/cache_metal/tokenizers-0.22.2-cp39-abi3-macosx_11_0_arm64.whl",
+  "./wheels/cache_metal/tomlkit-0.13.3-py3-none-any.whl",
+  "./wheels/cache_metal/torch-2.12.0-cp311-cp311-macosx_14_0_arm64.whl",
+  "./wheels/cache_metal/torchvision-0.27.0-cp311-cp311-macosx_14_0_arm64.whl",
+  "./wheels/cache_metal/tqdm-4.67.1-py3-none-any.whl",
+  "./wheels/cache_metal/transformers-4.57.3-py3-none-any.whl",
+  "./wheels/cache_metal/trimesh-4.10.1-py3-none-any.whl",
+  "./wheels/cache_metal/typer-0.25.1-py3-none-any.whl",
+  "./wheels/cache_metal/typing_extensions-4.15.0-py3-none-any.whl",
+  "./wheels/cache_metal/typing_inspection-0.4.2-py3-none-any.whl",
+  "./wheels/cache_metal/tzdata-2026.2-py2.py3-none-any.whl",
+  "./wheels/cache_metal/urllib3-2.7.0-py3-none-any.whl",
+  "./wheels/cache_metal/utils3d-0.0.2-py3-none-any.whl",
+  "./wheels/cache_metal/uvicorn-0.46.0-py3-none-any.whl",
+  "./wheels/cache_metal/zipp-3.23.1-py3-none-any.whl",
+  "./wheels/cache_metal/zstandard-0.25.0-cp311-cp311-macosx_11_0_arm64.whl",
+]
+
+[permissions]
+files = "Read input images and write generated GLB assets"
+network = "Download Pixal3D model weights and wheels"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  ".mypy_cache/",
+  "/.git/",
+  "/.github/",
+  ".gitignore",
+  ".gitattributes",
+  "*.pyc",
+  "*.pyo",
+  "*.pyd",
+  "*.zip",
+  "*.log",
+  "*.bat",
+  "*.sh",
+  ".DS_Store",
+  "Thumbs.db",
+  ".vscode/",
+  ".idea/",
+  "*.egg-info/",
+  ".pytest_cache/",
+  ".tox/",
+  ".coverage",
+  "*.sublime-*",
+  "_vendor/",
+  "wheels/cache/",
+  "wheels/install.log",
+  "wheels/state.json",
+]

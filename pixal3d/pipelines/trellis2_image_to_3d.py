@@ -1,4 +1,6 @@
 from typing import *
+import os
+import platform
 import torch
 import torch.nn as nn
 import numpy as np
@@ -8,6 +10,25 @@ from . import samplers, rembg
 from ..modules.sparse import SparseTensor
 from ..modules import image_feature_extractor
 from ..representations import Mesh, MeshWithVoxel
+from ..utils.device_utils import empty_cache, synchronize
+
+
+def _rembg_args_for_runtime(rembg_spec: dict) -> dict:
+    rembg_args = dict(rembg_spec.get('args', {}))
+    requested = rembg_args.get('model_name', '')
+    override = os.environ.get('PIXAL3D_RMBG_MODEL', '').strip()
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if not override and system == 'darwin' and machine in {'arm64', 'aarch64'} and requested == 'briaai/RMBG-2.0':
+        override = 'ZhengPeng7/BiRefNet'
+    if override and override != requested:
+        print(
+            f"[RMBG] Replacing background remover {requested or '<default>'} with {override} "
+            "for this runtime.",
+            flush=True,
+        )
+        rembg_args['model_name'] = override
+    return rembg_args
 
 
 class Trellis2ImageTo3DPipeline(Pipeline):
@@ -106,7 +127,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         if image_cond_args.get('model_name') == 'facebook/dinov3-vitl16-pretrain-lvd1689m':
             image_cond_args['model_name'] = 'camenduru/dinov3-vitl16-pretrain-lvd1689m'
         pipeline.image_cond_model = getattr(image_feature_extractor, args['image_cond_model']['name'])(**image_cond_args)
-        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])
+        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**_rembg_args_for_runtime(args['rembg_model']))
         
         pipeline.low_vram = args.get('low_vram', True)
         pipeline.default_pipeline_type = args.get('default_pipeline_type', '1024_cascade')
@@ -481,12 +502,14 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         meshes, subs = self.decode_shape_slat(shape_slat, resolution)
         tex_voxels = self.decode_tex_slat(tex_slat, subs)
         out_mesh = []
-        torch.cuda.synchronize()
+        synchronize(self.device)
         for m, v in zip(meshes, tex_voxels):
-            # try:
-            m.fill_holes()
-            # except RuntimeError as e:
-                # print(f"[WARNING] fill_holes failed (likely PyTorch/cumesh compatibility issue), skipping: {e}")
+            try:
+                m.fill_holes()
+            except (ImportError, ModuleNotFoundError, NotImplementedError, RuntimeError) as error:
+                if self.device.type == "cuda":
+                    raise
+                print(f"[Metal] Skipping CUDA-only fill_holes step: {error}")
             out_mesh.append(
                 MeshWithVoxel(
                     m.vertices, m.faces,
@@ -602,7 +625,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
                 cond_1024, self.models['tex_slat_flow_model_1024'],
                 shape_slat, tex_slat_sampler_params
             )
-        torch.cuda.empty_cache()
+        empty_cache(self.device)
         out_mesh = self.decode_latent(shape_slat, tex_slat, res)
         if return_latent:
             return out_mesh, (shape_slat, tex_slat, res)

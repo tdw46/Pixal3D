@@ -17,7 +17,73 @@ from .sparse_unet_vae import (
     SparseUnetVaeDecoder,
 )
 from ...representations import Mesh
-from o_voxel.convert import flexible_dual_grid_to_mesh
+
+try:
+    from o_voxel.convert import flexible_dual_grid_to_mesh
+except Exception:
+    flexible_dual_grid_to_mesh = None
+
+
+def _cube_surface_fallback(
+    coords: torch.Tensor,
+    vertices: torch.Tensor,
+    intersected: torch.Tensor,
+    quad_lerp: torch.Tensor,
+    aabb: list,
+    grid_size: int,
+    train: bool = False,
+):
+    mask = intersected.reshape(intersected.shape[0], -1).any(dim=1)
+    occupied_coords = coords[mask].detach().cpu().int()
+    device = vertices.device
+    if occupied_coords.numel() == 0:
+        empty_vertices = torch.empty((0, 3), dtype=torch.float32, device=device)
+        empty_faces = torch.empty((0, 3), dtype=torch.int32, device=device)
+        return empty_vertices, empty_faces
+
+    occupied = {tuple(int(v) for v in coord.tolist()) for coord in occupied_coords}
+    vertex_index: dict[tuple[int, int, int], int] = {}
+    out_vertices: list[tuple[int, int, int]] = []
+    out_faces: list[tuple[int, int, int]] = []
+
+    def vid(corner: tuple[int, int, int]) -> int:
+        index = vertex_index.get(corner)
+        if index is None:
+            index = len(out_vertices)
+            vertex_index[corner] = index
+            out_vertices.append(corner)
+        return index
+
+    faces = (
+        ((-1, 0, 0), ((0, 0, 0), (0, 0, 1), (0, 1, 1), (0, 1, 0))),
+        ((1, 0, 0), ((1, 0, 0), (1, 1, 0), (1, 1, 1), (1, 0, 1))),
+        ((0, -1, 0), ((0, 0, 0), (1, 0, 0), (1, 0, 1), (0, 0, 1))),
+        ((0, 1, 0), ((0, 1, 0), (0, 1, 1), (1, 1, 1), (1, 1, 0))),
+        ((0, 0, -1), ((0, 0, 0), (0, 1, 0), (1, 1, 0), (1, 0, 0))),
+        ((0, 0, 1), ((0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1))),
+    )
+
+    for x, y, z in occupied:
+        for normal, corners in faces:
+            neighbor = (x + normal[0], y + normal[1], z + normal[2])
+            if neighbor in occupied:
+                continue
+            ids = [vid((x + cx, y + cy, z + cz)) for cx, cy, cz in corners]
+            out_faces.append((ids[0], ids[1], ids[2]))
+            out_faces.append((ids[0], ids[2], ids[3]))
+
+    min_corner = torch.tensor(aabb[0], dtype=torch.float32, device=device)
+    scale = (torch.tensor(aabb[1], dtype=torch.float32, device=device) - min_corner) / float(grid_size)
+    out_vertices_tensor = torch.tensor(out_vertices, dtype=torch.float32, device=device) * scale + min_corner
+    out_faces_tensor = torch.tensor(out_faces, dtype=torch.int32, device=device)
+    return out_vertices_tensor, out_faces_tensor
+
+
+def _flexible_dual_grid_to_mesh(*args, **kwargs):
+    if flexible_dual_grid_to_mesh is not None:
+        return flexible_dual_grid_to_mesh(*args, **kwargs)
+    print("[Metal] o_voxel flexible dual grid converter unavailable; using coarse voxel surface fallback.", flush=True)
+    return _cube_surface_fallback(*args, **kwargs)
 
 
 class FlexiDualGridVaeEncoder(SparseUnetVaeEncoder):
@@ -87,7 +153,7 @@ class FlexiDualGridVaeDecoder(SparseUnetVaeDecoder):
             vertices = h.replace((1 + 2 * self.voxel_margin) * F.sigmoid(h.feats[..., 0:3]) - self.voxel_margin)
             intersected_logits = h.replace(h.feats[..., 3:6])
             quad_lerp = h.replace(F.softplus(h.feats[..., 6:7]))
-            mesh = [Mesh(*flexible_dual_grid_to_mesh(
+            mesh = [Mesh(*_flexible_dual_grid_to_mesh(
                 v.coords[:, 1:], v.feats, i.feats, q.feats,
                 aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
                 grid_size=self.resolution,
@@ -100,7 +166,7 @@ class FlexiDualGridVaeDecoder(SparseUnetVaeDecoder):
             vertices = h.replace((1 + 2 * self.voxel_margin) * F.sigmoid(h.feats[..., 0:3]) - self.voxel_margin)
             intersected = h.replace(h.feats[..., 3:6] > 0)
             quad_lerp = h.replace(F.softplus(h.feats[..., 6:7]))
-            mesh = [Mesh(*flexible_dual_grid_to_mesh(
+            mesh = [Mesh(*_flexible_dual_grid_to_mesh(
                 v.coords[:, 1:], v.feats, i.feats, q.feats,
                 aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
                 grid_size=self.resolution,

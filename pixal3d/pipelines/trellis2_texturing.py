@@ -1,4 +1,6 @@
 from typing import *
+import os
+import platform
 import torch
 import torch.nn as nn
 import numpy as np
@@ -13,6 +15,24 @@ import cumesh
 import nvdiffrast.torch as dr
 import cv2
 import flex_gemm
+
+
+def _rembg_args_for_runtime(rembg_spec: dict) -> dict:
+    rembg_args = dict(rembg_spec.get('args', {}))
+    requested = rembg_args.get('model_name', '')
+    override = os.environ.get('PIXAL3D_RMBG_MODEL', '').strip()
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if not override and system == 'darwin' and machine in {'arm64', 'aarch64'} and requested == 'briaai/RMBG-2.0':
+        override = 'ZhengPeng7/BiRefNet'
+    if override and override != requested:
+        print(
+            f"[RMBG] Replacing background remover {requested or '<default>'} with {override} "
+            "for this runtime.",
+            flush=True,
+        )
+        rembg_args['model_name'] = override
+    return rembg_args
 
 
 class Trellis2TexturingPipeline(Pipeline):
@@ -83,7 +103,7 @@ class Trellis2TexturingPipeline(Pipeline):
         pipeline.tex_slat_normalization = args['tex_slat_normalization']
 
         pipeline.image_cond_model = getattr(image_feature_extractor, args['image_cond_model']['name'])(**args['image_cond_model']['args'])
-        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])
+        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**_rembg_args_for_runtime(args['rembg_model']))
 
         pipeline.low_vram = args.get('low_vram', True)
         pipeline.pbr_attr_layout = {

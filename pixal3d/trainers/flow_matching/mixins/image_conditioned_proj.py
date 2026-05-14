@@ -18,6 +18,7 @@ from PIL import Image, ImageDraw
 import torch.distributed as dist
 from ....utils import dist_utils
 from ....utils.dist_utils import read_file_dist
+from ....utils.device_utils import default_device, module_device
 
 
 # =============================================================================
@@ -341,6 +342,23 @@ class ProjGrid(nn.Module):
 # DINOv3 Feature Extractor with Projection
 # =============================================================================
 
+class NafInterpolationFallback(nn.Module):
+    """MPS-safe feature upsampler used when NAF's native attention dependency is unavailable."""
+
+    def forward(
+        self,
+        guide_image: torch.Tensor,
+        lr_features: torch.Tensor,
+        target_size: Tuple[int, int],
+    ) -> torch.Tensor:
+        return F.interpolate(
+            lr_features,
+            size=target_size,
+            mode="bilinear",
+            align_corners=False,
+        )
+
+
 class DinoV3ProjFeatureExtractor(nn.Module):
     """
     DINOv3 Feature Extractor with View-Aligned Projection.
@@ -415,11 +433,39 @@ class DinoV3ProjFeatureExtractor(nn.Module):
     def _load_naf(self):
         """Lazy-load pretrained NAF model."""
         if self.naf_model is None:
-            import torch.hub
             device = next(self.model.parameters()).device
-            self.naf_model = torch.hub.load(
-                "valeoai/NAF", "naf", pretrained=True, device=device, trust_repo=True
-            )
+            try:
+                import torch.hub
+                if device.type == "mps":
+                    from ....utils.natten_mps_compat import install as install_natten_mps_compat
+
+                    if not install_natten_mps_compat():
+                        raise ModuleNotFoundError("natten_mps")
+                    print(
+                        "[NAF] Loading valeoai/NAF with natten-mps Metal neighborhood attention compatibility.",
+                        flush=True,
+                    )
+                self.naf_model = torch.hub.load(
+                    "valeoai/NAF", "naf", pretrained=True, device=device, trust_repo=True
+                )
+            except ModuleNotFoundError as error:
+                if getattr(error, "name", "") not in {"natten", "natten_mps"}:
+                    raise
+                if device.type == "cuda":
+                    raise
+                print(
+                    "[NAF] Metal neighborhood attention is unavailable; using torch interpolation feature upsampler.",
+                    flush=True,
+                )
+                self.naf_model = NafInterpolationFallback().to(device)
+            except Exception as error:
+                if device.type != "mps":
+                    raise
+                print(
+                    f"[NAF] natten-mps/NAF load failed on Metal; using torch interpolation feature upsampler: {error}",
+                    flush=True,
+                )
+                self.naf_model = NafInterpolationFallback().to(device)
             self.naf_model.eval()
             self.naf_model.requires_grad_(False)
         
@@ -493,7 +539,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             image = [i.resize((self.image_size, self.image_size), Image.LANCZOS) for i in image]
             image = [np.array(i.convert('RGB')).astype(np.float32) / 255 for i in image]
             image = [torch.from_numpy(i).permute(2, 0, 1).float() for i in image]
-            image = torch.stack(image).cuda()
+            image = torch.stack(image).to(module_device(self.model))
         else:
             raise ValueError(f"Unsupported type of image: {type(image)}")
         
@@ -756,7 +802,7 @@ class DinoV3VaeProjFeatureExtractor(nn.Module):
             image = [i.resize((self.image_size, self.image_size), Image.LANCZOS) for i in image]
             image = [np.array(i.convert('RGB')).astype(np.float32) / 255 for i in image]
             image = [torch.from_numpy(i).permute(2, 0, 1).float() for i in image]
-            image = torch.stack(image).cuda()
+            image = torch.stack(image).to(module_device(self.dino_model))
         else:
             raise ValueError(f"Unsupported type of image: {type(image)}")
         
@@ -836,7 +882,7 @@ class ImageConditionedProjMixin:
                 from . import image_conditioned
                 self.image_cond_model = getattr(image_conditioned, model_name)(**model_args)
             
-            self.image_cond_model.cuda()
+            self.image_cond_model.to(default_device())
             
             # Expose proj_channels for denoiser to know the correct proj_in_channels
             if hasattr(self.image_cond_model, 'proj_channels'):

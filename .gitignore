@@ -7,6 +7,12 @@ __pycache__/
 # Output files
 output.glb
 autotune_cache.json
+*.zip
+wheels/install.log
+wheels/webview_state.json
+
+# Local installed runtime; wheel cache is committed instead.
+_vendor/
 
 # Virtual environment
 venv/

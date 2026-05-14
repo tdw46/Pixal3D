@@ -1,8 +1,22 @@
 from typing import *
 import torch
 from ..voxel import Voxel
-import cumesh
-from flex_gemm.ops.grid_sample import grid_sample_3d
+
+
+def _require_cumesh():
+    try:
+        import cumesh
+    except Exception as error:
+        raise NotImplementedError("CuMesh is required for this mesh operation.") from error
+    return cumesh
+
+
+def _grid_sample_3d(*args, **kwargs):
+    try:
+        from flex_gemm.ops.grid_sample import grid_sample_3d
+    except Exception as error:
+        raise NotImplementedError("flex_gemm grid_sample_3d is required for voxel attribute queries.") from error
+    return grid_sample_3d(*args, **kwargs)
 
 
 class Mesh:
@@ -33,9 +47,10 @@ class Mesh:
         return self.to('cpu')
     
     def fill_holes(self, max_hole_perimeter=3e-2):
-        vertices = self.vertices.clone().cuda().contiguous()
-        faces = self.faces.clone().cuda().contiguous()
-        
+        cumesh = _require_cumesh()
+        vertices = self.vertices.clone().to("cuda").contiguous()
+        faces = self.faces.clone().to("cuda").contiguous()
+
         mesh = cumesh.CuMesh()
         mesh.init(vertices, faces)
         mesh.get_edges()
@@ -57,9 +72,10 @@ class Mesh:
         self.faces = new_faces.to(self.device)
         
     def remove_faces(self, face_mask: torch.Tensor):
-        vertices = self.vertices.clone().cuda().contiguous()
-        faces = self.faces.clone().cuda().contiguous()
-        
+        cumesh = _require_cumesh()
+        vertices = self.vertices.clone().to("cuda").contiguous()
+        faces = self.faces.clone().to("cuda").contiguous()
+
         mesh = cumesh.CuMesh()
         mesh.init(vertices, faces)
         mesh.remove_faces(face_mask)
@@ -69,9 +85,10 @@ class Mesh:
         self.faces = new_faces.to(self.device)
         
     def simplify(self, target=1000000, verbose: bool=False, options: dict={}):
-        vertices = self.vertices.clone().cuda().contiguous()
-        faces = self.faces.clone().cuda().contiguous()
-        
+        cumesh = _require_cumesh()
+        vertices = self.vertices.clone().to("cuda").contiguous()
+        faces = self.faces.clone().to("cuda").contiguous()
+
         mesh = cumesh.CuMesh()
         mesh.init(vertices, faces)
         mesh.simplify(target, verbose=verbose, options=options)
@@ -221,7 +238,7 @@ class MeshWithVoxel(Mesh, Voxel):
         
     def query_attrs(self, xyz):
         grid = ((xyz - self.origin) / self.voxel_size).reshape(1, -1, 3)
-        vertex_attrs = grid_sample_3d(
+        vertex_attrs = _grid_sample_3d(
             self.attrs,
             torch.cat([torch.zeros_like(self.coords[..., :1]), self.coords], dim=-1),
             self.voxel_shape,

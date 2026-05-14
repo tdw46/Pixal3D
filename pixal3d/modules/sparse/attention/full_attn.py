@@ -9,6 +9,23 @@ __all__ = [
 ]
 
 
+def _sdpa_varlen(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, q_seqlen: list[int], kv_seqlen: list[int]) -> torch.Tensor:
+    from torch.nn.functional import scaled_dot_product_attention as sdpa
+
+    outs = []
+    q_start = 0
+    kv_start = 0
+    for q_len, kv_len in zip(q_seqlen, kv_seqlen):
+        q_part = q[q_start:q_start + q_len].permute(1, 0, 2).unsqueeze(0)
+        k_part = k[kv_start:kv_start + kv_len].permute(1, 0, 2).unsqueeze(0)
+        v_part = v[kv_start:kv_start + kv_len].permute(1, 0, 2).unsqueeze(0)
+        out = sdpa(q_part, k_part, v_part)
+        outs.append(out.squeeze(0).permute(1, 0, 2))
+        q_start += q_len
+        kv_start += kv_len
+    return torch.cat(outs, dim=0)
+
+
 @overload
 def sparse_scaled_dot_product_attention(qkv: VarLenTensor) -> VarLenTensor:
     """
@@ -229,6 +246,30 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
             max_q_seqlen = max(q_seqlen)
             max_kv_seqlen = max(kv_seqlen)
         out, _ = flash_attn_4_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_q_seqlen, max_kv_seqlen)
+    elif config.ATTN == 'sdpa':
+        if num_all_args == 1:
+            q, k, v = qkv.unbind(dim=1)
+        elif num_all_args == 2:
+            k, v = kv.unbind(dim=1)
+        out = _sdpa_varlen(q, k, v, q_seqlen, kv_seqlen)
+    elif config.ATTN == 'naive':
+        if num_all_args == 1:
+            q, k, v = qkv.unbind(dim=1)
+        elif num_all_args == 2:
+            k, v = kv.unbind(dim=1)
+        scale = q.shape[-1] ** -0.5
+        outs = []
+        q_start = 0
+        kv_start = 0
+        for q_len, kv_len in zip(q_seqlen, kv_seqlen):
+            q_part = q[q_start:q_start + q_len].permute(1, 0, 2)
+            k_part = k[kv_start:kv_start + kv_len].permute(1, 0, 2)
+            v_part = v[kv_start:kv_start + kv_len].permute(1, 0, 2)
+            attn = torch.softmax((q_part @ k_part.transpose(-2, -1)) * scale, dim=-1)
+            outs.append((attn @ v_part).permute(1, 0, 2))
+            q_start += q_len
+            kv_start += kv_len
+        out = torch.cat(outs, dim=0)
     else:
         raise ValueError(f"Unknown attention module: {config.ATTN}")
 

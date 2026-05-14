@@ -1,4 +1,6 @@
 from typing import *
+import os
+import platform
 import torch
 import torch.nn as nn
 import numpy as np
@@ -8,6 +10,25 @@ from . import samplers, rembg
 from ..modules.sparse import SparseTensor
 from ..modules import image_feature_extractor
 from ..representations import Mesh, MeshWithVoxel
+from ..utils.device_utils import empty_cache, synchronize
+
+
+def _rembg_args_for_runtime(rembg_spec: dict) -> dict:
+    rembg_args = dict(rembg_spec.get('args', {}))
+    requested = rembg_args.get('model_name', '')
+    override = os.environ.get('PIXAL3D_RMBG_MODEL', '').strip()
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if not override and system == 'darwin' and machine in {'arm64', 'aarch64'} and requested == 'briaai/RMBG-2.0':
+        override = 'ZhengPeng7/BiRefNet'
+    if override and override != requested:
+        print(
+            f"[RMBG] Replacing background remover {requested or '<default>'} with {override} "
+            "for this runtime.",
+            flush=True,
+        )
+        rembg_args['model_name'] = override
+    return rembg_args
 
 
 class Pixal3DImageTo3DPipeline(Pipeline):
@@ -120,7 +141,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         pipeline.image_cond_model_shape_1024 = None
         pipeline.image_cond_model_tex_1024 = None
 
-        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])
+        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**_rembg_args_for_runtime(args['rembg_model']))
         
         pipeline.low_vram = args.get('low_vram', True)
         pipeline.default_pipeline_type = args.get('default_pipeline_type', '1024_cascade')
@@ -589,9 +610,14 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         meshes, subs = self.decode_shape_slat(shape_slat, resolution)
         tex_voxels = self.decode_tex_slat(tex_slat, subs)
         out_mesh = []
-        torch.cuda.synchronize()
+        synchronize(self.device)
         for m, v in zip(meshes, tex_voxels):
-            m.fill_holes()
+            try:
+                m.fill_holes()
+            except (ImportError, ModuleNotFoundError, NotImplementedError, RuntimeError) as error:
+                if self.device.type == "cuda":
+                    raise
+                print(f"[Metal] Skipping CUDA-only fill_holes step: {error}")
             out_mesh.append(
                 MeshWithVoxel(
                     m.vertices, m.faces,
@@ -671,6 +697,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         torch.manual_seed(seed)
 
         # ---- Stage 1: Sparse Structure (proj) ----
+        print("[Stage 1/5] Building sparse-structure image conditioning...", flush=True)
         cond_ss = self.get_proj_cond_ss(
             [image],
             camera_angle_x=camera_angle_x,
@@ -678,28 +705,33 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             mesh_scale=mesh_scale,
         )
         ss_res = 32
+        print("[Stage 1/5] Sampling sparse structure...", flush=True)
         coords = self.sample_sparse_structure(
             cond_ss, ss_res,
             num_samples, sparse_structure_sampler_params
         )
+        print(f"[Stage 1/5] Sparse structure tokens: {coords.shape[0]}", flush=True)
         del cond_ss
-        torch.cuda.empty_cache()
+        empty_cache(self.device)
 
         # ---- Stage 2: Shape LR 512 (proj) ----
+        print("[Stage 2/5] Building 512 shape conditioning...", flush=True)
         cond_shape_lr = self.get_proj_cond_shape(
             self.image_cond_model_shape_512, [image], coords,
             camera_angle_x=camera_angle_x,
             distance=distance,
             mesh_scale=mesh_scale,
         )
+        print("[Stage 2/5] Sampling 512 shape latent...", flush=True)
         lr_slat = self.sample_shape_slat(
             cond_shape_lr, self.models['shape_slat_flow_model_512'],
             coords, shape_slat_sampler_params
         )
         del cond_shape_lr
-        torch.cuda.empty_cache()
+        empty_cache(self.device)
 
         # ---- Stage 3a: Upsample LR → HR ----
+        print("[Stage 3/5] Upsampling shape coordinates for high-resolution pass...", flush=True)
         if self.low_vram:
             self.models['shape_slat_decoder'].to(self.device)
             self.models['shape_slat_decoder'].low_vram = True
@@ -721,12 +753,17 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             if num_tokens < max_num_tokens or actual_hr_resolution == 1024:
                 break
             actual_hr_resolution -= 128
+        print(
+            f"[Stage 3/5] High-resolution grid: {actual_hr_resolution}; tokens: {num_tokens}",
+            flush=True,
+        )
 
         actual_grid_res = actual_hr_resolution // 16
         del lr_slat, hr_coords, quant_coords
-        torch.cuda.empty_cache()
+        empty_cache(self.device)
 
         # ---- Stage 3b: Shape HR (proj) ----
+        print("[Stage 3/5] Building high-resolution shape conditioning...", flush=True)
         cond_shape_hr = self.get_proj_cond_shape(
             self.image_cond_model_shape_1024, [image], hr_coords_unique,
             camera_angle_x=camera_angle_x,
@@ -734,6 +771,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             mesh_scale=mesh_scale,
             grid_resolution_override=actual_grid_res,
         )
+        print("[Stage 3/5] Sampling high-resolution shape latent...", flush=True)
         noise_hr = SparseTensor(
             feats=torch.randn(hr_coords_unique.shape[0], self.models['shape_slat_flow_model_1024'].in_channels).to(self.device),
             coords=hr_coords_unique,
@@ -756,9 +794,10 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         mean = torch.tensor(self.shape_slat_normalization['mean'])[None].to(hr_slat.device)
         shape_slat = hr_slat * std + mean
         del cond_shape_hr, noise_hr, hr_slat, hr_coords_unique
-        torch.cuda.empty_cache()
+        empty_cache(self.device)
 
         # ---- Stage 4: Texture (proj) ----
+        print("[Stage 4/5] Building texture conditioning...", flush=True)
         tex_grid_res = actual_hr_resolution // 16
         cond_tex = self.get_proj_cond_shape(
             self.image_cond_model_tex_1024, [image], shape_slat.coords,
@@ -767,16 +806,19 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             mesh_scale=mesh_scale,
             grid_resolution_override=tex_grid_res,
         )
+        print("[Stage 4/5] Sampling texture latent...", flush=True)
         tex_slat = self.sample_tex_slat(
             cond_tex, self.models['tex_slat_flow_model_1024'],
             shape_slat, tex_slat_sampler_params
         )
         del cond_tex
-        torch.cuda.empty_cache()
+        empty_cache(self.device)
 
         # ---- Stage 5: Decode ----
+        print("[Stage 5/5] Decoding mesh and texture voxels...", flush=True)
         res = actual_hr_resolution
         out_mesh = self.decode_latent(shape_slat, tex_slat, res)
+        print("[Stage 5/5] Decode complete.", flush=True)
         if return_latent:
             return out_mesh, (shape_slat, tex_slat, res)
         else:
