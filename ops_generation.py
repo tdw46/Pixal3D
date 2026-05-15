@@ -208,16 +208,43 @@ def draw_generation_controls(layout, context: Context) -> None:
     props = _settings(context)
     status = get_cached_runtime_status(props.device)
     install = get_install_progress()
-    can_install = install["running"] or (not status.webview_ready) or (not status.generation_ready)
+    missing_count = len(status.missing_webview_modules) + len(status.missing_generation_modules)
+    status_unchecked = (
+        not status.webview_ready
+        and not status.generation_ready
+        and missing_count == 0
+        and any("has not been refreshed" in note for note in status.unsupported_notes)
+    )
+    can_install = (not status_unchecked) and ((not status.webview_ready) or (not status.generation_ready))
 
     action_row = layout.row(align=True)
     action_row.operator("beyond_pixal3d.open_studio", icon="WINDOW")
     action_row.operator("beyond_pixal3d.refresh_runtime_status", text="", icon="FILE_REFRESH")
 
     status_box = layout.box()
-    status_box.label(text="Webview: ready" if status.webview_ready else "Webview: unavailable", icon="WINDOW")
-    status_box.label(text="Generation: ready" if status.generation_ready else "Generation: unavailable", icon="MODIFIER")
+    webview_text = "Webview: unknown" if status_unchecked else ("Webview: ready" if status.webview_ready else "Webview: unavailable")
+    generation_text = "Generation: unknown" if status_unchecked else ("Generation: ready" if status.generation_ready else "Generation: unavailable")
+    status_box.label(text=webview_text, icon="WINDOW")
+    status_box.label(text=generation_text, icon="MODIFIER")
     status_box.label(text=f"Backend: {status.platform_key}", icon="SYSTEM")
+
+    if install["running"]:
+        progress_box = layout.box()
+        progress_box.label(text="Dependency install running", icon="IMPORT")
+        if hasattr(progress_box, "progress"):
+            progress_box.progress(factor=install["progress"], text=install["stage"], type="BAR")
+        else:
+            progress_box.label(text=f"{int(install['progress'] * 100)}% - {install['stage']}")
+
+    if status_unchecked:
+        refresh_box = layout.box()
+        refresh_box.alert = True
+        refresh_box.label(text="Runtime status needs refresh", icon="FILE_REFRESH")
+        for note in status.unsupported_notes:
+            for line in wrap_text_to_panel(note, context, full_width=True).splitlines() or [""]:
+                refresh_box.label(text=line)
+        refresh_box.operator("beyond_pixal3d.refresh_runtime_status", text="Refresh Pixal3D Runtime", icon="FILE_REFRESH")
+        return
 
     last_output_path = props.last_output_path or _last_webview_output_path()
     if last_output_path:
@@ -235,11 +262,6 @@ def draw_generation_controls(layout, context: Context) -> None:
             install_row = warning.row()
             install_row.enabled = not install["running"]
             install_row.operator("beyond_pixal3d.install_bundled_wheels", text=bundled_install_label(), icon="IMPORT")
-        if install["running"]:
-            if hasattr(warning, "progress"):
-                warning.progress(factor=install["progress"], text=install["stage"], type="BAR")
-            else:
-                warning.label(text=f"{int(install['progress'] * 100)}% - {install['stage']}")
 
     if not status.generation_ready:
         runtime_box = layout.box()
@@ -254,11 +276,6 @@ def draw_generation_controls(layout, context: Context) -> None:
                 runtime_box.label(text="No bundled installer is available for the remaining missing dependency.", icon="INFO")
         else:
             runtime_box.label(text="Bundled installable dependencies are present.", icon="CHECKMARK")
-        if install["running"]:
-            if hasattr(runtime_box, "progress"):
-                runtime_box.progress(factor=install["progress"], text=install["stage"], type="BAR")
-            else:
-                runtime_box.label(text=f"{int(install['progress'] * 100)}% - {install['stage']}")
         runtime_box.label(text=f"Missing dependencies: {len(status.missing_generation_modules)}")
         details_row = runtime_box.row()
         details_row.prop(

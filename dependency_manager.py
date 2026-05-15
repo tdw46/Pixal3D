@@ -532,6 +532,36 @@ def _parse_iso_datetime(value: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _process_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if platform.system().lower() == "windows":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            exit_code = wintypes.DWORD()
+            try:
+                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    return False
+                return exit_code.value == STILL_ACTIVE
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def get_install_progress() -> dict:
     path = install_progress_path()
     if not path.is_file():
@@ -548,12 +578,13 @@ def get_install_progress() -> dict:
     if data["running"]:
         progress_pid = int(data.get("pid") or -1)
         same_process = progress_pid == os.getpid()
+        writer_alive = same_process or _process_is_running(progress_pid)
         last_updated = _parse_iso_datetime(str(data.get("last_updated", "")))
         heartbeat_age = (
             datetime.now(timezone.utc) - last_updated
         ).total_seconds() if last_updated is not None else INSTALL_PROGRESS_STALE_SECONDS + 1
         thread_alive = _INSTALL_THREAD is not None and _INSTALL_THREAD.is_alive()
-        if not same_process or (not thread_alive and heartbeat_age > INSTALL_PROGRESS_STALE_SECONDS):
+        if (not writer_alive) or (heartbeat_age > INSTALL_PROGRESS_STALE_SECONDS and (not same_process or not thread_alive)):
             data["running"] = False
             data["stage"] = "Install interrupted"
             data["message"] = ""
