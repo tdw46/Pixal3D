@@ -5,6 +5,7 @@ import base64
 import json
 import mimetypes
 import os
+import platform
 import shlex
 import subprocess
 import sys
@@ -37,7 +38,7 @@ HTML = """
     input, select { box-sizing: border-box; width: 100%; border: 1px solid #3a414d; background: #101218; color: #f3f5f8; border-radius: 6px; padding: 10px; }
     .row { display: grid; grid-template-columns: 1fr 116px; gap: 12px; align-items: end; }
     .split { display: grid; grid-template-columns: 1fr 110px 130px; gap: 12px; align-items: end; }
-    .split.options { grid-template-columns: 1fr 1fr; }
+    .split.options { grid-template-columns: 1fr 1fr 1fr; }
     .actions { margin-top:18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .toggle { display:flex; align-items:center; gap:8px; color:#c7d0dd; font-size:13px; }
     .toggle input { width:auto; }
@@ -89,7 +90,7 @@ HTML = """
       </div>
       <div>
         <label>Device</label>
-        <select id="device">
+        <select id="device" onchange="syncPrepareButton()">
           <option value="auto">Auto</option>
           <option value="cuda">CUDA</option>
           <option value="mps">Metal</option>
@@ -99,22 +100,29 @@ HTML = """
     </div>
     <div class="split options">
       <div>
-        <label>Low-poly face target (0 = PBR default)</label>
-        <input id="decimationTarget" type="number" value="0" min="0" step="1000">
+        <label>Low-poly face target</label>
+        <input id="decimationTarget" type="number" value="1000000" min="0" step="1000">
+      </div>
+      <div>
+        <label>Target resolution</label>
+        <select id="targetResolution">
+          <option value="1024">1024</option>
+          <option value="1536" selected>1536</option>
+        </select>
       </div>
       <div>
         <label>PBR texture size</label>
         <select id="textureSize">
           <option value="1024">1024</option>
-          <option value="2048" selected>2048</option>
-          <option value="4096">4096</option>
+          <option value="2048">2048</option>
+          <option value="4096" selected>4096</option>
         </select>
       </div>
     </div>
     <div class="actions">
       <button id="generateButton" onclick="startGenerate()">Generate GLB</button>
       <button class="secondary" onclick="status()">Check Runtime</button>
-      <button class="secondary" onclick="prepareModels()">Prepare Models</button>
+      <button id="prepareButton" class="secondary" onclick="prepareModels()">Prepare Models</button>
       <label class="toggle"><input id="importAfter" type="checkbox" checked> Import into Blender</label>
       <label class="toggle"><input id="mpsFallback" type="checkbox" checked> Allow unsupported-op CPU fallback</label>
     </div>
@@ -174,9 +182,15 @@ HTML = """
     async function prepareModels() {
       setRunning(true);
       log('Preparing open Pixal3D model assets...');
-      const message = await pywebview.api.prepare_model_assets();
+      const message = await pywebview.api.prepare_model_assets(document.getElementById('device').value || 'auto');
       log(message);
       setRunning(false);
+    }
+
+    async function syncPrepareButton() {
+      const button = document.getElementById('prepareButton');
+      const visible = await pywebview.api.prepare_model_assets_available(document.getElementById('device').value || 'auto');
+      button.style.display = visible ? '' : 'none';
     }
 
     async function loadPreview(path) {
@@ -210,7 +224,8 @@ HTML = """
         seed: parseInt(document.getElementById('seed').value || '42', 10),
         device: document.getElementById('device').value || 'auto',
         decimation_target: parseInt(document.getElementById('decimationTarget').value || '0', 10),
-        texture_size: parseInt(document.getElementById('textureSize').value || '2048', 10),
+        target_resolution: parseInt(document.getElementById('targetResolution').value || '1536', 10),
+        texture_size: parseInt(document.getElementById('textureSize').value || '4096', 10),
         import_after_generate: document.getElementById('importAfter').checked,
         enable_mps_fallback: document.getElementById('mpsFallback').checked
       };
@@ -256,11 +271,14 @@ HTML = """
         seed: parseInt(document.getElementById('seed').value || '42', 10),
         device: document.getElementById('device').value || 'auto',
         decimation_target: parseInt(document.getElementById('decimationTarget').value || '0', 10),
-        texture_size: parseInt(document.getElementById('textureSize').value || '2048', 10)
+        target_resolution: parseInt(document.getElementById('targetResolution').value || '1536', 10),
+        texture_size: parseInt(document.getElementById('textureSize').value || '4096', 10)
       };
       log('Running Pixal3D...');
       log(await pywebview.api.generate(payload));
     }
+
+    window.addEventListener('pywebviewready', syncPrepareButton);
   </script>
 </body>
 </html>
@@ -268,8 +286,9 @@ HTML = """
 
 
 class Pixal3DApi:
-    def __init__(self, extension_root: Path):
+    def __init__(self, extension_root: Path, session_id: str):
         self.extension_root = extension_root
+        self.session_id = session_id
         self._job_lock = threading.Lock()
         self._job: dict = {
             "running": False,
@@ -289,6 +308,7 @@ class Pixal3DApi:
         state = {
             "last_output_path": output_path,
             "import_requested": import_requested,
+            "session_id": self.session_id,
             "last_updated": datetime.now(timezone.utc).isoformat(),
         }
         path = self._state_path()
@@ -370,10 +390,15 @@ class Pixal3DApi:
             return {"ok": False, "message": f"Could not read image: {error}"}
         return {"ok": True, "data_url": f"data:{mime};base64,{data}"}
 
-    def prepare_model_assets(self) -> str:
+    def prepare_model_assets_available(self, device: str = "auto") -> bool:
+        from dependency_manager import open_model_asset_prep_available
+
+        return open_model_asset_prep_available(device)
+
+    def prepare_model_assets(self, device: str = "auto") -> str:
         from dependency_manager import prepare_open_model_assets
 
-        ok, message = prepare_open_model_assets()
+        ok, message = prepare_open_model_assets(device)
         prefix = "Model assets ready." if ok else "Model asset preparation failed."
         return f"{prefix}\n{message}"
 
@@ -383,8 +408,11 @@ class Pixal3DApi:
         model = str(payload.get("model", "")).strip() or "TencentARC/Pixal3D"
         seed = int(payload.get("seed", 42) or 42)
         device = str(payload.get("device", "auto") or "auto")
-        decimation_target = max(0, int(payload.get("decimation_target", 0) or 0))
-        texture_size = max(256, int(payload.get("texture_size", 2048) or 2048))
+        decimation_target = max(0, int(payload.get("decimation_target", 1000000) or 1000000))
+        target_resolution = int(payload.get("target_resolution", 1536) or 1536)
+        if target_resolution not in {1024, 1536}:
+            target_resolution = 1536
+        texture_size = max(256, int(payload.get("texture_size", 4096) or 4096))
         if not image or not Path(image).is_file():
             return "Choose an existing input image.", None, None, {}
         if not output:
@@ -396,8 +424,16 @@ class Pixal3DApi:
             [str(self.extension_root / "_vendor"), str(self.extension_root), env.get("PYTHONPATH", "")]
         )
         env.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
+        env.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+        env.setdefault("PYTHONUTF8", "1")
         env["PYTHONUNBUFFERED"] = "1"
         env.setdefault("PYTHONIOENCODING", "utf-8")
+        try:
+            from dependency_manager import configure_windows_triton_environment
+
+            configure_windows_triton_environment(env)
+        except Exception:
+            pass
         try:
             import certifi
             env.setdefault("SSL_CERT_FILE", certifi.where())
@@ -420,6 +456,8 @@ class Pixal3DApi:
             device,
             "--decimation_target",
             str(decimation_target),
+            "--target_resolution",
+            str(target_resolution),
             "--texture_size",
             str(texture_size),
         ]
@@ -428,26 +466,32 @@ class Pixal3DApi:
         return None, output, command, env
 
     def _run_header(self, payload: dict, command: list[str], output: str) -> str:
-        from dependency_manager import get_runtime_status
+        from dependency_manager import get_runtime_status, resolved_generation_backend
 
         device = str(payload.get("device", "auto") or "auto")
         status = get_runtime_status(device)
+        backend = resolved_generation_backend(device)
         lines = [
             f"[{self._timestamp()}] Pixal3D generation requested",
             f"  Image: {os.path.expanduser(str(payload.get('image', '')).strip())}",
             f"  Output: {output}",
             f"  Model: {str(payload.get('model', '')).strip() or 'TencentARC/Pixal3D'}",
             f"  Seed: {int(payload.get('seed', 42) or 42)}",
-            f"  Low-poly face target: {int(payload.get('decimation_target', 0) or 0) or 'full detail'}",
-            f"  PBR texture size: {int(payload.get('texture_size', 2048) or 2048)}",
+            f"  Low-poly face target: {int(payload.get('decimation_target', 1000000) or 1000000)}",
+            f"  Target resolution: {int(payload.get('target_resolution', 1536) or 1536)}",
+            f"  PBR texture size: {int(payload.get('texture_size', 4096) or 4096)}",
             f"  Device request: {device}",
-            f"  Metal GPU backend: PyTorch MPS",
-            f"  Unsupported-op CPU fallback: {bool(payload.get('enable_mps_fallback', True))}",
+            f"  Resolved backend: {backend.upper()}",
             f"  Import into Blender: {bool(payload.get('import_after_generate', True))}",
             f"  Runtime platform: {status.platform_key}",
             f"  Pywebview ready: {status.webview_ready}",
             f"  Generation ready: {status.generation_ready}",
         ]
+        if backend == "metal":
+            lines.append("  Metal GPU backend: PyTorch MPS")
+            lines.append(f"  Unsupported-op CPU fallback: {bool(payload.get('enable_mps_fallback', True))}")
+        elif backend == "cuda":
+            lines.append("  CUDA runtime profile: Torch 2.7 / CUDA 12.8 with native Pixal3D wheels")
         if status.missing_generation_modules:
             lines.append("  Missing generation modules: " + ", ".join(status.missing_generation_modules))
         for note in status.unsupported_notes:
@@ -561,6 +605,8 @@ class Pixal3DApi:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
             )
             with self._job_lock:
@@ -612,7 +658,16 @@ class Pixal3DApi:
         if validation_error:
             return validation_error
         header = self._run_header(payload, command, output or "")
-        result = subprocess.run(command, cwd=str(self.extension_root), env=env, capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            command,
+            cwd=str(self.extension_root),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
         if result.returncode == 0 and output and Path(output).is_file():
             self._write_last_output(output, bool(payload.get("import_after_generate", True)))
         return (header + "\n" + result.stdout + "\n" + result.stderr).strip()
@@ -688,6 +743,8 @@ def _raise_window_on_launch(window) -> None:
 
 
 def _bind_shown(window) -> None:
+    if platform.system().lower() != "darwin":
+        return
     try:
         window.shown += lambda: _raise_window_on_launch(window)
         return
@@ -706,7 +763,8 @@ def _start_webview(window, storage_path: str) -> None:
     import webview
 
     def on_loaded(_window=None):
-        _raise_window_on_launch(window)
+        if platform.system().lower() == "darwin":
+            _raise_window_on_launch(window)
 
     try:
         webview.start(on_loaded, (window,), debug=False, storage_path=storage_path)
@@ -720,6 +778,7 @@ def _start_webview(window, storage_path: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--extension-root", required=True)
+    parser.add_argument("--session-id", default="")
     args = parser.parse_args()
     extension_root = Path(args.extension_root).resolve()
     _bootstrap(extension_root)
@@ -728,7 +787,14 @@ def main() -> int:
 
     profile_dir = extension_root / "wheels" / "webview_profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
-    window = webview.create_window("Beyond Pixal3D", html=HTML, js_api=Pixal3DApi(extension_root), width=860, height=700)
+    session_id = str(args.session_id or "standalone").strip()
+    window = webview.create_window(
+        "Beyond Pixal3D",
+        html=HTML,
+        js_api=Pixal3DApi(extension_root, session_id),
+        width=860,
+        height=700,
+    )
     _bind_shown(window)
     _start_webview(window, str(profile_dir))
     return 0

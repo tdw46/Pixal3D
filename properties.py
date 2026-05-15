@@ -65,6 +65,11 @@ class BEYONDPIXAL3D_PG_settings(PropertyGroup):
         subtype="FILE_PATH",
         description="Most recent generated GLB path",
     )
+    show_dependency_details: BoolProperty(  # type: ignore[valid-type]
+        name="Dependency Details",
+        default=False,
+        description="Show the full runtime dependency list in the panel",
+    )
 
     def resolved_output_path(self) -> str:
         output_dir = Path(bpy.path.abspath(self.output_dir or _default_output_dir())).expanduser()

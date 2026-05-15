@@ -3,6 +3,7 @@ from __future__ import annotations
 import bpy
 from bpy.types import Context, Menu, Panel
 
+from .dependency_manager import bundled_install_label, open_model_asset_prep_available
 from .ops_generation import draw_generation_controls
 
 
@@ -15,8 +16,9 @@ class BEYONDPIXAL3D_MT_menu(Menu):
         layout.operator("beyond_pixal3d.open_studio", icon="WINDOW")
         layout.operator("beyond_pixal3d.import_last_output", icon="IMPORT")
         layout.separator()
-        layout.operator("beyond_pixal3d.install_bundled_wheels", icon="IMPORT")
-        layout.operator("beyond_pixal3d.prepare_open_model_assets", icon="FILE_REFRESH")
+        layout.operator("beyond_pixal3d.install_bundled_wheels", text=bundled_install_label(), icon="IMPORT")
+        if open_model_asset_prep_available():
+            layout.operator("beyond_pixal3d.prepare_open_model_assets", icon="FILE_REFRESH")
         layout.operator("beyond_pixal3d.refresh_runtime_status", icon="FILE_REFRESH")
 
 

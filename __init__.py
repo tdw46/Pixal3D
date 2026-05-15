@@ -37,6 +37,10 @@ def register() -> None:
     if ops_mod and hasattr(ops_mod, "register_webview_import_timer"):
         ops_mod.register_webview_import_timer()
 
+    deps_mod = auto_load.get_module("ops_dependencies")
+    if deps_mod and hasattr(deps_mod, "register_install_progress_timer"):
+        deps_mod.register_install_progress_timer()
+
 
 def unregister() -> None:
     ui_mod = auto_load.get_module("ui_panels")
@@ -52,6 +56,13 @@ def unregister() -> None:
             ops_mod.unregister_webview_import_timer()
         except Exception as error:
             print(f"Beyond Pixal3D: failed to unregister webview import timer: {error}")
+
+    deps_mod = auto_load.get_module("ops_dependencies")
+    if deps_mod and hasattr(deps_mod, "unregister_install_progress_timer"):
+        try:
+            deps_mod.unregister_install_progress_timer()
+        except Exception as error:
+            print(f"Beyond Pixal3D: failed to unregister install progress timer: {error}")
 
     props_mod = auto_load.get_module("properties")
     if props_mod and hasattr(props_mod, "unregister_properties"):

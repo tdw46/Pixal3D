@@ -343,7 +343,7 @@ class ProjGrid(nn.Module):
 # =============================================================================
 
 class NafInterpolationFallback(nn.Module):
-    """MPS-safe feature upsampler used when NAF's native attention dependency is unavailable."""
+    """Feature upsampler used when NAF's native attention dependency is unavailable."""
 
     def forward(
         self,
@@ -451,10 +451,8 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             except ModuleNotFoundError as error:
                 if getattr(error, "name", "") not in {"natten", "natten_mps"}:
                     raise
-                if device.type == "cuda":
-                    raise
                 print(
-                    "[NAF] Metal neighborhood attention is unavailable; using torch interpolation feature upsampler.",
+                    "[NAF] Neighborhood attention is unavailable; using torch interpolation feature upsampler.",
                     flush=True,
                 )
                 self.naf_model = NafInterpolationFallback().to(device)

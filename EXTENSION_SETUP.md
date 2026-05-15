@@ -28,7 +28,8 @@ Blender after disabling/enabling the add-on.
 Pixal3D `main` follows Trellis.2. The upstream Trellis.2 README currently documents Linux,
 NVIDIA GPU, CUDA Toolkit 12.4, Python 3.10, PyTorch 2.6.0 CUDA, and compiled CUDA extensions.
 That CUDA path is still preserved. On CUDA, the extension expects the upstream CUDA wheels for
-`natten`, `flash_attn_3`, `flex_gemm`, `cumesh`, and `o_voxel`.
+`natten`, `flash_attn`, `flex_gemm`, `cumesh`, `o_voxel`, `nvdiffrast`, and
+`nvdiffrec_render`.
 
 The macOS path is separate. On Apple Silicon, the extension now uses:
 

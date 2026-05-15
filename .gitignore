@@ -10,8 +10,11 @@ autotune_cache.json
 *.zip
 wheels/install.log
 wheels/webview_state.json
+wheels/cache_windows_cuda/
+wheels/cache_windows_webview/
+wheels/install_progress.json
 
-# Local installed runtime; wheel cache is committed instead.
+# Local installed runtime.
 _vendor/
 
 # Virtual environment

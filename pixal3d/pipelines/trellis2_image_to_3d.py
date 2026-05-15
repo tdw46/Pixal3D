@@ -19,7 +19,14 @@ def _rembg_args_for_runtime(rembg_spec: dict) -> dict:
     override = os.environ.get('PIXAL3D_RMBG_MODEL', '').strip()
     system = platform.system().lower()
     machine = platform.machine().lower()
-    if not override and system == 'darwin' and machine in {'arm64', 'aarch64'} and requested == 'briaai/RMBG-2.0':
+    if (
+        not override
+        and requested == 'briaai/RMBG-2.0'
+        and (
+            (system == 'darwin' and machine in {'arm64', 'aarch64'})
+            or system == 'windows'
+        )
+    ):
         override = 'ZhengPeng7/BiRefNet'
     if override and override != requested:
         print(

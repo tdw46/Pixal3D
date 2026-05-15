@@ -4,6 +4,7 @@ import json
 import math
 import os
 import subprocess
+import uuid
 from pathlib import Path
 
 import bpy
@@ -11,11 +12,21 @@ from bpy.props import StringProperty
 from bpy.types import Context, Operator
 from mathutils import Vector
 
-from .dependency_manager import blender_python, extension_root, get_runtime_status, vendor_dir
+from .dependency_manager import (
+    blender_python,
+    bundled_install_label,
+    extension_root,
+    get_cached_runtime_status,
+    get_install_progress,
+    get_runtime_status,
+    vendor_dir,
+)
 from .utils import wrap_text_to_panel
 
 _AUTO_IMPORT_RUNNING = False
 _AUTO_IMPORT_TOKEN = ""
+_IMPORT_UPRIGHT_X_ROTATION = math.radians(90.0)
+_WEBVIEW_SESSION_ID = uuid.uuid4().hex
 
 
 def _settings(context: Context):
@@ -29,7 +40,7 @@ def _correct_imported_meshes(objects) -> None:
 
     for obj in mesh_objects:
         obj.rotation_mode = "XYZ"
-        obj.rotation_euler.rotate_axis("X", math.pi)
+        obj.rotation_euler.rotate_axis("X", _IMPORT_UPRIGHT_X_ROTATION)
 
     bpy.context.view_layer.update()
     lowest_z = min(
@@ -63,6 +74,8 @@ def _webview_state_path() -> Path:
 
 def _last_webview_output_path() -> str:
     data = _read_webview_state()
+    if data.get("session_id") != _WEBVIEW_SESSION_ID:
+        return ""
     return str(data.get("last_output_path") or "")
 
 
@@ -84,7 +97,13 @@ def _auto_import_timer():
     state = _read_webview_state()
     filepath = str(state.get("last_output_path") or "")
     token = f"{state.get('last_updated') or ''}:{filepath}"
-    if state.get("import_requested") and filepath and token != _AUTO_IMPORT_TOKEN and Path(filepath).is_file():
+    if (
+        state.get("session_id") == _WEBVIEW_SESSION_ID
+        and state.get("import_requested")
+        and filepath
+        and token != _AUTO_IMPORT_TOKEN
+        and Path(filepath).is_file()
+    ):
         try:
             _import_glb(filepath)
             _AUTO_IMPORT_TOKEN = token
@@ -100,7 +119,7 @@ def _auto_import_timer():
 def register_webview_import_timer() -> None:
     global _AUTO_IMPORT_RUNNING, _AUTO_IMPORT_TOKEN
     state = _read_webview_state()
-    existing_path = str(state.get("last_output_path") or "")
+    existing_path = str(state.get("last_output_path") or "") if state.get("session_id") == _WEBVIEW_SESSION_ID else ""
     _AUTO_IMPORT_TOKEN = f"{state.get('last_updated') or ''}:{existing_path}" if existing_path else ""
     _AUTO_IMPORT_RUNNING = True
     if not bpy.app.timers.is_registered(_auto_import_timer):
@@ -125,20 +144,33 @@ class BEYONDPIXAL3D_OT_open_studio(Operator):
 
     def execute(self, context: Context):
         props = _settings(context)
-        status = get_runtime_status(props.device)
+        status = get_cached_runtime_status(props.device)
         if not status.webview_ready:
-            self.report({"ERROR"}, "Install bundled pywebview wheels first.")
+            detail = " Press Refresh Pixal3D Runtime if this looks stale." if not status.last_updated else ""
+            self.report({"ERROR"}, "Install bundled pywebview wheels first." + detail)
             return {"CANCELLED"}
 
         env = os.environ.copy()
         env["PYTHONPATH"] = os.pathsep.join(
             [str(vendor_dir()), str(extension_root()), env.get("PYTHONPATH", "")]
         )
+        env.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
+        env.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+        env.setdefault("PYTHONUTF8", "1")
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        try:
+            from .dependency_manager import configure_windows_triton_environment
+
+            configure_windows_triton_environment(env)
+        except Exception:
+            pass
         command = [
             blender_python(),
             str(extension_root() / "webview_app.py"),
             "--extension-root",
             str(extension_root()),
+            "--session-id",
+            _WEBVIEW_SESSION_ID,
         ]
         try:
             subprocess.Popen(command, cwd=str(extension_root()), env=env)
@@ -174,7 +206,9 @@ class BEYONDPIXAL3D_OT_import_last_output(Operator):
 
 def draw_generation_controls(layout, context: Context) -> None:
     props = _settings(context)
-    status = get_runtime_status("auto")
+    status = get_cached_runtime_status(props.device)
+    install = get_install_progress()
+    can_install = install["running"] or (not status.webview_ready) or (not status.generation_ready)
 
     action_row = layout.row(align=True)
     action_row.operator("beyond_pixal3d.open_studio", icon="WINDOW")
@@ -197,15 +231,46 @@ def draw_generation_controls(layout, context: Context) -> None:
         warning = layout.box()
         warning.alert = True
         warning.label(text="Pywebview wheels are not installed.", icon="ERROR")
-        warning.operator("beyond_pixal3d.install_bundled_wheels", icon="IMPORT")
+        if can_install or install["running"]:
+            install_row = warning.row()
+            install_row.enabled = not install["running"]
+            install_row.operator("beyond_pixal3d.install_bundled_wheels", text=bundled_install_label(), icon="IMPORT")
+        if install["running"]:
+            if hasattr(warning, "progress"):
+                warning.progress(factor=install["progress"], text=install["stage"], type="BAR")
+            else:
+                warning.label(text=f"{int(install['progress'] * 100)}% - {install['stage']}")
 
     if not status.generation_ready:
         runtime_box = layout.box()
         runtime_box.alert = True
         runtime_box.label(text="Generation runtime unavailable", icon="ERROR")
-        messages = status.unsupported_notes or [
-            "Missing modules: " + ", ".join(status.missing_generation_modules)
-        ]
-        for message in messages:
-            for line in wrap_text_to_panel(message, context, full_width=True).splitlines() or [""]:
-                runtime_box.label(text=line)
+        show_install_action = can_install or install["running"] or bool(status.missing_generation_modules)
+        if show_install_action:
+            install_row = runtime_box.row()
+            install_row.enabled = not install["running"] and can_install
+            install_row.operator("beyond_pixal3d.install_bundled_wheels", text=bundled_install_label(), icon="IMPORT")
+            if status.missing_generation_modules and not can_install and not install["running"]:
+                runtime_box.label(text="No bundled installer is available for the remaining missing dependency.", icon="INFO")
+        else:
+            runtime_box.label(text="Bundled installable dependencies are present.", icon="CHECKMARK")
+        if install["running"]:
+            if hasattr(runtime_box, "progress"):
+                runtime_box.progress(factor=install["progress"], text=install["stage"], type="BAR")
+            else:
+                runtime_box.label(text=f"{int(install['progress'] * 100)}% - {install['stage']}")
+        runtime_box.label(text=f"Missing dependencies: {len(status.missing_generation_modules)}")
+        details_row = runtime_box.row()
+        details_row.prop(
+            props,
+            "show_dependency_details",
+            text="Dependency Details",
+            icon="TRIA_DOWN" if props.show_dependency_details else "TRIA_RIGHT",
+            emboss=False,
+        )
+        if props.show_dependency_details:
+            messages = ["Missing modules: " + ", ".join(status.missing_generation_modules)]
+            messages.extend(status.unsupported_notes)
+            for message in messages:
+                for line in wrap_text_to_panel(message, context, full_width=True).splitlines() or [""]:
+                    runtime_box.label(text=line)

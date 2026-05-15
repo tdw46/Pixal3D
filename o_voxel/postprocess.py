@@ -132,10 +132,10 @@ def _remove_small_components(mesh: trimesh.Trimesh, min_faces: int = 500, verbos
         mesh.update_faces(keep)
         mesh.remove_unreferenced_vertices()
         if verbose:
-            print(f"[o_voxel.metal] removed small components; kept {len(mesh.faces)} faces", flush=True)
+            print(f"[o_voxel.portable] removed small components; kept {len(mesh.faces)} faces", flush=True)
     except Exception as error:
         if verbose:
-            print(f"[o_voxel.metal] small-component cleanup skipped: {error}", flush=True)
+            print(f"[o_voxel.portable] small-component cleanup skipped: {error}", flush=True)
     return mesh
 
 
@@ -153,10 +153,10 @@ def _simplify_mesh(mesh: trimesh.Trimesh, target_faces: int, verbose: bool = Fal
         )
         mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
         if verbose:
-            print(f"[o_voxel.metal] simplified mesh to {len(mesh.faces)} faces", flush=True)
+            print(f"[o_voxel.portable] simplified mesh to {len(mesh.faces)} faces", flush=True)
     except Exception as error:
         if verbose:
-            print(f"[o_voxel.metal] simplification skipped: {error}", flush=True)
+            print(f"[o_voxel.portable] simplification skipped: {error}", flush=True)
     return mesh
 
 
@@ -248,29 +248,29 @@ def to_glb(
         faces=faces.detach().cpu().numpy(),
         process=False,
     )
-    print(f"[o_voxel.metal] Starting portable postprocess: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces", flush=True)
+    print(f"[o_voxel.portable] Starting portable postprocess: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces", flush=True)
     try:
         trimesh.repair.fill_holes(mesh)
         trimesh.repair.fix_normals(mesh)
     except Exception as error:
         if verbose:
-            print(f"[o_voxel.metal] mesh repair skipped: {error}", flush=True)
+            print(f"[o_voxel.portable] mesh repair skipped: {error}", flush=True)
 
     mesh = _remove_small_components(mesh, min_faces=min(500, max(1, len(mesh.faces) // 10000)), verbose=True)
     bake_face_target = int(decimation_target or min(500000, len(mesh.faces)))
     if decimation_target <= 0 and len(mesh.faces) > bake_face_target:
         print(
-            f"[o_voxel.metal] No decimation target supplied; capping portable UV bake at {bake_face_target} faces.",
+            f"[o_voxel.portable] No decimation target supplied; capping portable UV bake at {bake_face_target} faces.",
             flush=True,
         )
     mesh = _simplify_mesh(mesh, bake_face_target, verbose=True)
 
-    print("[o_voxel.metal] UV unwrapping with xatlas...", flush=True)
+    print("[o_voxel.portable] UV unwrapping with xatlas...", flush=True)
     out_vertices, out_faces, out_uvs = _unwrap_with_xatlas(mesh)
-    print(f"[o_voxel.metal] UV unwrap complete: {len(out_vertices)} vertices, {len(out_faces)} faces", flush=True)
-    print(f"[o_voxel.metal] Rasterizing UV atlas at {texture_size}x{texture_size}...", flush=True)
+    print(f"[o_voxel.portable] UV unwrap complete: {len(out_vertices)} vertices, {len(out_faces)} faces", flush=True)
+    print(f"[o_voxel.portable] Rasterizing UV atlas at {texture_size}x{texture_size}...", flush=True)
     face_ids = _rasterize_uv_faces(out_uvs, out_faces, int(texture_size))
-    print("[o_voxel.metal] Baking sparse PBR attributes into texture maps...", flush=True)
+    print("[o_voxel.portable] Baking sparse PBR attributes into texture maps...", flush=True)
     sample_points, pixel_indices = _barycentric_points(out_vertices, out_faces, out_uvs, face_ids)
     attrs = torch.zeros(int(texture_size), int(texture_size), attr_volume.shape[1], dtype=torch.float32)
     if sample_points.numel() > 0:
@@ -308,7 +308,7 @@ def to_glb(
         alphaMode="OPAQUE",
         doubleSided=True,
     )
-    print("[o_voxel.metal] PBR texture bake complete.", flush=True)
+    print("[o_voxel.portable] PBR texture bake complete.", flush=True)
     return trimesh.Trimesh(
         vertices=out_vertices,
         faces=out_faces,

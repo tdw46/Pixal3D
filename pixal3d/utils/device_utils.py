@@ -44,8 +44,12 @@ def configure_backend_for_device(device: torch.device, *, enable_mps_fallback: b
         os.environ.setdefault("SPARSE_CONV_BACKEND", "metal")
         os.environ.setdefault("PIXAL3D_DEVICE", "mps")
     elif device.type == "cuda":
-        os.environ.setdefault("ATTN_BACKEND", "flash_attn_3")
-        os.environ.setdefault("SPARSE_ATTN_BACKEND", os.environ.get("ATTN_BACKEND", "flash_attn_3"))
+        if platform.system().lower() == "windows":
+            os.environ.setdefault("ATTN_BACKEND", "flash_attn")
+            os.environ.setdefault("SPARSE_ATTN_BACKEND", os.environ.get("ATTN_BACKEND", "flash_attn"))
+        else:
+            os.environ.setdefault("ATTN_BACKEND", "flash_attn_3")
+            os.environ.setdefault("SPARSE_ATTN_BACKEND", os.environ.get("ATTN_BACKEND", "flash_attn_3"))
         os.environ.setdefault("SPARSE_CONV_BACKEND", "flex_gemm")
         os.environ.setdefault("PIXAL3D_DEVICE", str(device))
     else:

@@ -250,8 +250,9 @@ def run_inference(
     extend_pixel: int = 0,
     image_resolution: int = 512,
     max_num_tokens: int = 49152,
-    decimation_target: int = 0,
-    texture_size: int = 2048,
+    decimation_target: int = 1000000,
+    target_resolution: int = 1536,
+    texture_size: int = 4096,
     model_path: str = MODEL_PATH,
     device: str = "auto",
     enable_mps_fallback: bool = True,
@@ -302,7 +303,9 @@ def run_inference(
         "guidance_rescale": tex_slat_guidance_rescale, "rescale_t": tex_slat_rescale_t,
     }
 
-    pipeline_type = "1024_cascade"
+    if target_resolution not in {1024, 1536}:
+        raise ValueError(f"Unsupported Pixal3D target resolution: {target_resolution}")
+    pipeline_type = f"{target_resolution}_cascade"
     mesh_list, (shape_slat, tex_slat, res) = pipeline.run(
         image_preprocessed,
         camera_params=camera_params,
@@ -321,8 +324,13 @@ def run_inference(
     # Extract GLB
     print("[Inference] Extracting GLB...")
     try:
-        import o_voxel
-        glb = o_voxel.postprocess.to_glb(
+        import o_voxel.postprocess as o_voxel_postprocess
+        if device_obj.type == "cuda":
+            module_file = os.path.normcase(os.path.abspath(getattr(o_voxel_postprocess, "__file__", "")))
+            vendor_root = os.path.normcase(os.path.abspath(os.path.join(os.path.dirname(__file__), "_vendor")))
+            if not module_file.startswith(vendor_root + os.sep):
+                raise RuntimeError(f"CUDA requires native vendor o_voxel.postprocess, got {module_file}")
+        glb = o_voxel_postprocess.to_glb(
             vertices=mesh.vertices, faces=mesh.faces, attr_volume=mesh.attrs,
             coords=mesh.coords, attr_layout=pipeline.pbr_attr_layout,
             grid_size=res, aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
@@ -330,7 +338,7 @@ def run_inference(
             remesh=True, remesh_band=1, remesh_project=0, use_tqdm=True,
         )
         if device_obj.type != "cuda":
-            print("[Metal] o_voxel postprocess exported PBR texture maps through the portable xatlas bake path.", flush=True)
+            print("[Portable] o_voxel postprocess exported PBR texture maps through the xatlas bake path.", flush=True)
     except Exception as error:
         if device_obj.type == "cuda":
             raise
@@ -388,8 +396,9 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--model_path", type=str, default=MODEL_PATH, help="Model path or HuggingFace repo")
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "cuda:0", "mps", "metal", "cpu"], help="Runtime device")
-    parser.add_argument("--decimation_target", type=int, default=0, help="Optional low-poly target face count; 0 keeps full detail")
-    parser.add_argument("--texture_size", type=int, default=2048, help="CUDA o_voxel PBR texture size")
+    parser.add_argument("--decimation_target", type=int, default=1000000, help="Optional low-poly target face count; 0 keeps full detail")
+    parser.add_argument("--target_resolution", type=int, default=1536, choices=[1024, 1536], help="Pixal3D cascade target resolution")
+    parser.add_argument("--texture_size", type=int, default=4096, help="CUDA o_voxel PBR texture size")
     parser.add_argument("--disable_mps_fallback", action="store_true", help="Disable PyTorch MPS CPU fallback")
 
     args = parser.parse_args()
@@ -401,6 +410,7 @@ if __name__ == "__main__":
         model_path=args.model_path,
         device=args.device,
         decimation_target=args.decimation_target,
+        target_resolution=args.target_resolution,
         texture_size=args.texture_size,
         enable_mps_fallback=not args.disable_mps_fallback,
     )

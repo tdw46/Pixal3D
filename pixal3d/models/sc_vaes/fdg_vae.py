@@ -82,7 +82,7 @@ def _cube_surface_fallback(
 def _flexible_dual_grid_to_mesh(*args, **kwargs):
     if flexible_dual_grid_to_mesh is not None:
         return flexible_dual_grid_to_mesh(*args, **kwargs)
-    print("[Metal] o_voxel flexible dual grid converter unavailable; using coarse voxel surface fallback.", flush=True)
+    print("[o_voxel] Flexible dual grid converter unavailable; using coarse voxel surface fallback.", flush=True)
     return _cube_surface_fallback(*args, **kwargs)
 
 
