@@ -1681,6 +1681,7 @@ def run_worker(
     device: str = "auto",
     decimation_target: int = 1000000,
     target_resolution: int = 1536,
+    max_num_tokens: int = 49152,
     texture_size: int = 4096,
     enable_mps_fallback: bool = True,
 ) -> subprocess.CompletedProcess[str]:
@@ -1708,6 +1709,8 @@ def run_worker(
         str(decimation_target),
         "--target_resolution",
         str(target_resolution),
+        "--max_num_tokens",
+        str(max_num_tokens),
         "--texture_size",
         str(texture_size),
     ]

@@ -58,6 +58,7 @@ class FlowEulerSampler(Sampler):
         t: float,
         t_prev: float,
         cond: Optional[Any] = None,
+        return_pred_x_0: bool = False,
         **kwargs
     ):
         """
@@ -69,6 +70,7 @@ class FlowEulerSampler(Sampler):
             t: The current timestep.
             t_prev: The previous timestep.
             cond: conditional information.
+            return_pred_x_0: If True, include a prediction of x_0 for debugging.
             **kwargs: Additional arguments for model inference.
 
         Returns:
@@ -76,7 +78,11 @@ class FlowEulerSampler(Sampler):
             - 'pred_x_prev': x_{t-1}.
             - 'pred_x_0': a prediction of x_0.
         """
-        pred_x_0, pred_eps, pred_v = self._get_model_prediction(model, x_t, t, cond, **kwargs)
+        if return_pred_x_0:
+            pred_x_0, _, pred_v = self._get_model_prediction(model, x_t, t, cond, **kwargs)
+        else:
+            pred_x_0 = None
+            pred_v = self._inference_model(model, x_t, t, cond, **kwargs)
         pred_x_prev = x_t - (t - t_prev) * pred_v
         return edict({"pred_x_prev": pred_x_prev, "pred_x_0": pred_x_0})
 
@@ -90,6 +96,7 @@ class FlowEulerSampler(Sampler):
         rescale_t: float = 1.0,
         verbose: bool = True,
         tqdm_desc: str = "Sampling",
+        keep_history: bool = False,
         **kwargs
     ):
         """
@@ -103,25 +110,40 @@ class FlowEulerSampler(Sampler):
             rescale_t: The rescale factor for t.
             verbose: If True, show a progress bar.
             tqdm_desc: A customized tqdm desc.
+            keep_history: If True, keep per-step predictions for debugging.
             **kwargs: Additional arguments for model_inference.
 
         Returns:
             a dict containing the following
             - 'samples': the model samples.
-            - 'pred_x_t': a list of prediction of x_t.
-            - 'pred_x_0': a list of prediction of x_0.
+            - 'pred_x_t': a list of prediction of x_t when keep_history is True.
+            - 'pred_x_0': a list of prediction of x_0 when keep_history is True.
         """
         sample = noise
         t_seq = np.linspace(1, 0, steps + 1)
         t_seq = rescale_t * t_seq / (1 + (rescale_t - 1) * t_seq)
         t_seq = t_seq.tolist()
         t_pairs = list((t_seq[i], t_seq[i + 1]) for i in range(steps))
-        ret = edict({"samples": None, "pred_x_t": [], "pred_x_0": []})
+        ret = edict({
+            "samples": None,
+            "pred_x_t": [] if keep_history else None,
+            "pred_x_0": [] if keep_history else None,
+        })
         for t, t_prev in tqdm(t_pairs, desc=tqdm_desc, disable=not verbose):
-            out = self.sample_once(model, sample, t, t_prev, cond, **kwargs)
+            out = self.sample_once(
+                model,
+                sample,
+                t,
+                t_prev,
+                cond,
+                return_pred_x_0=keep_history,
+                **kwargs,
+            )
             sample = out.pred_x_prev
-            ret.pred_x_t.append(out.pred_x_prev)
-            ret.pred_x_0.append(out.pred_x_0)
+            if keep_history:
+                ret.pred_x_t.append(out.pred_x_prev)
+                ret.pred_x_0.append(out.pred_x_0)
+            del out
         ret.samples = sample
         return ret
 

@@ -412,6 +412,7 @@ class Pixal3DApi:
         target_resolution = int(payload.get("target_resolution", 1536) or 1536)
         if target_resolution not in {1024, 1536}:
             target_resolution = 1536
+        max_num_tokens = int(payload.get("max_num_tokens", 49152) or 49152)
         texture_size = max(256, int(payload.get("texture_size", 4096) or 4096))
         if not image or not Path(image).is_file():
             return "Choose an existing input image.", None, None, {}
@@ -458,6 +459,8 @@ class Pixal3DApi:
             str(decimation_target),
             "--target_resolution",
             str(target_resolution),
+            "--max_num_tokens",
+            str(max_num_tokens),
             "--texture_size",
             str(texture_size),
         ]
@@ -479,6 +482,7 @@ class Pixal3DApi:
             f"  Seed: {int(payload.get('seed', 42) or 42)}",
             f"  Low-poly face target: {int(payload.get('decimation_target', 1000000) or 1000000)}",
             f"  Target resolution: {int(payload.get('target_resolution', 1536) or 1536)}",
+            f"  Max sparse tokens: {int(payload.get('max_num_tokens', 49152) or 49152)}",
             f"  PBR texture size: {int(payload.get('texture_size', 4096) or 4096)}",
             f"  Device request: {device}",
             f"  Resolved backend: {backend.upper()}",

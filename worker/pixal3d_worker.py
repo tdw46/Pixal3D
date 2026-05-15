@@ -73,6 +73,7 @@ def main() -> int:
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "cuda:0", "mps", "metal", "cpu"])
     parser.add_argument("--decimation_target", type=int, default=1000000)
     parser.add_argument("--target_resolution", type=int, default=1536, choices=[1024, 1536])
+    parser.add_argument("--max_num_tokens", type=int, default=49152)
     parser.add_argument("--texture_size", type=int, default=4096)
     parser.add_argument("--disable_mps_fallback", action="store_true")
     args = parser.parse_args()
@@ -87,6 +88,7 @@ def main() -> int:
     _log(f"[Worker] Seed: {args.seed}")
     _log(f"[Worker] Decimation target: {args.decimation_target or 'full detail'}")
     _log(f"[Worker] Target resolution: {args.target_resolution}")
+    _log(f"[Worker] Max sparse tokens: {args.max_num_tokens}")
     _log(f"[Worker] Texture size: {args.texture_size}")
     _log(f"[Worker] Device request: {args.device}")
     backend = _resolved_backend(args.device)
@@ -115,6 +117,7 @@ def main() -> int:
             device=args.device,
             decimation_target=args.decimation_target,
             target_resolution=args.target_resolution,
+            max_num_tokens=args.max_num_tokens,
             texture_size=args.texture_size,
             enable_mps_fallback=not args.disable_mps_fallback,
         )

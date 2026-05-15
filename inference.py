@@ -398,6 +398,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "cuda:0", "mps", "metal", "cpu"], help="Runtime device")
     parser.add_argument("--decimation_target", type=int, default=1000000, help="Optional low-poly target face count; 0 keeps full detail")
     parser.add_argument("--target_resolution", type=int, default=1536, choices=[1024, 1536], help="Pixal3D cascade target resolution")
+    parser.add_argument("--max_num_tokens", type=int, default=49152, help="Maximum high-resolution sparse tokens before lowering the cascade resolution")
     parser.add_argument("--texture_size", type=int, default=4096, help="CUDA o_voxel PBR texture size")
     parser.add_argument("--disable_mps_fallback", action="store_true", help="Disable PyTorch MPS CPU fallback")
 
@@ -411,6 +412,7 @@ if __name__ == "__main__":
         device=args.device,
         decimation_target=args.decimation_target,
         target_resolution=args.target_resolution,
+        max_num_tokens=args.max_num_tokens,
         texture_size=args.texture_size,
         enable_mps_fallback=not args.disable_mps_fallback,
     )

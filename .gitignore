@@ -13,6 +13,7 @@ wheels/webview_state.json
 wheels/cache_windows_cuda/
 wheels/cache_windows_webview/
 wheels/install_progress.json
+wheels/webview_profile/
 
 # Local installed runtime.
 _vendor/
