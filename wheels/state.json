@@ -1,6 +1,25 @@
 {
   "state_version": 1,
-  "platform_key": "darwin-arm64-cp311",
-  "last_updated": "2026-05-14T17:14:37.719557+00:00",
-  "last_error": ""
+  "platform_key": "windows-x86_64-cp311",
+  "last_updated": "2026-05-15T19:30:29.333412+00:00",
+  "last_error": "",
+  "runtime_status": {
+    "requested_device": "auto",
+    "platform_key": "windows-x86_64-cp311",
+    "webview_ready": true,
+    "generation_ready": true,
+    "missing_webview_modules": [],
+    "missing_generation_modules": [],
+    "python_executable": "C:\\Program Files\\Blender Foundation\\Blender 5.0\\5.0\\python\\bin\\python.exe",
+    "vendor_dir": "C:\\Users\\tyler\\AppData\\Roaming\\Blender Foundation\\Blender\\5.0\\extensions\\user_default\\Beyond_Pixal3D\\_vendor",
+    "wheels_dir": "C:\\Users\\tyler\\AppData\\Roaming\\Blender Foundation\\Blender\\5.0\\extensions\\user_default\\Beyond_Pixal3D\\wheels",
+    "install_log_path": "C:\\Users\\tyler\\AppData\\Roaming\\Blender Foundation\\Blender\\5.0\\extensions\\user_default\\Beyond_Pixal3D\\wheels\\install.log",
+    "state_path": "C:\\Users\\tyler\\AppData\\Roaming\\Blender Foundation\\Blender\\5.0\\extensions\\user_default\\Beyond_Pixal3D\\wheels\\state.json",
+    "last_updated": "2026-05-15T19:30:29.333412+00:00",
+    "last_error": "",
+    "unsupported_notes": [
+      "Windows CUDA uses the upstream Pixal3D CUDA runtime where compatible wheels exist for Blender's Python: natten, o_voxel, cumesh, flex_gemm, triton-windows, flash_attn, nvdiffrast, and nvdiffrec_render.",
+      "Windows CUDA uses the native flash_attn backend from the TRELLIS.2 setup path. If the native wheel does not import, generation is marked unavailable."
+    ]
+  }
 }
