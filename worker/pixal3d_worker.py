@@ -71,10 +71,14 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--model_path", default="TencentARC/Pixal3D")
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "cuda:0", "mps", "metal", "cpu"])
-    parser.add_argument("--decimation_target", type=int, default=1000000)
+    parser.add_argument("--decimation_target", type=int, default=300000)
     parser.add_argument("--target_resolution", type=int, default=1536, choices=[1024, 1536])
-    parser.add_argument("--max_num_tokens", type=int, default=49152)
+    parser.add_argument("--max_num_tokens", type=int, default=32768)
+    parser.add_argument("--ss_sampling_steps", type=int, default=16)
+    parser.add_argument("--shape_sampling_steps", type=int, default=16)
+    parser.add_argument("--tex_sampling_steps", type=int, default=16)
     parser.add_argument("--texture_size", type=int, default=4096)
+    parser.add_argument("--low_vram", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--disable_mps_fallback", action="store_true")
     args = parser.parse_args()
 
@@ -89,7 +93,9 @@ def main() -> int:
     _log(f"[Worker] Decimation target: {args.decimation_target or 'full detail'}")
     _log(f"[Worker] Target resolution: {args.target_resolution}")
     _log(f"[Worker] Max sparse tokens: {args.max_num_tokens}")
+    _log(f"[Worker] Sampling steps: {args.ss_sampling_steps}/{args.shape_sampling_steps}/{args.tex_sampling_steps}")
     _log(f"[Worker] Texture size: {args.texture_size}")
+    _log(f"[Worker] Low-VRAM staged placement: {args.low_vram}")
     _log(f"[Worker] Device request: {args.device}")
     backend = _resolved_backend(args.device)
     _log(f"[Worker] Resolved backend: {backend.upper()}")
@@ -118,7 +124,11 @@ def main() -> int:
             decimation_target=args.decimation_target,
             target_resolution=args.target_resolution,
             max_num_tokens=args.max_num_tokens,
+            ss_sampling_steps=args.ss_sampling_steps,
+            shape_slat_sampling_steps=args.shape_sampling_steps,
+            tex_slat_sampling_steps=args.tex_sampling_steps,
             texture_size=args.texture_size,
+            low_vram=args.low_vram,
             enable_mps_fallback=not args.disable_mps_fallback,
         )
     except Exception as error:

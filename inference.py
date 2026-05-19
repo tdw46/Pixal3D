@@ -72,7 +72,7 @@ def load_moge_model(device="auto", model_name=MOGE_MODEL_NAME):
     return moge_model
 
 
-def init_pipeline(model_path=MODEL_PATH, device="auto"):
+def init_pipeline(model_path=MODEL_PATH, device="auto", low_vram: bool = True):
     device = resolve_device(device)
     print(f"[Pipeline] Loading from {model_path}...")
     pipeline = Pixal3DImageTo3DPipeline.from_pretrained(model_path)
@@ -83,13 +83,15 @@ def init_pipeline(model_path=MODEL_PATH, device="auto"):
     pipeline.image_cond_model_shape_1024 = build_image_cond_model(IMAGE_COND_CONFIGS["shape_1024"])
     pipeline.image_cond_model_tex_1024 = build_image_cond_model(IMAGE_COND_CONFIGS["tex_1024"])
 
-    pipeline.low_vram = device.type != "cuda"
+    pipeline.low_vram = bool(low_vram)
+    print(f"[Pipeline] Low-VRAM staged placement: {pipeline.low_vram}")
     pipeline.to(device)
 
-    pipeline.image_cond_model_ss.to(device)
-    pipeline.image_cond_model_shape_512.to(device)
-    pipeline.image_cond_model_shape_1024.to(device)
-    pipeline.image_cond_model_tex_1024.to(device)
+    if not pipeline.low_vram:
+        pipeline.image_cond_model_ss.to(device)
+        pipeline.image_cond_model_shape_512.to(device)
+        pipeline.image_cond_model_shape_1024.to(device)
+        pipeline.image_cond_model_tex_1024.to(device)
 
     print("[NAF] Pre-loading NAF upsampler model...")
     for attr in ['image_cond_model_ss', 'image_cond_model_shape_512', 'image_cond_model_shape_1024', 'image_cond_model_tex_1024']:
@@ -236,25 +238,26 @@ def run_inference(
     seed: int = 42,
     ss_guidance_strength: float = 7.5,
     ss_guidance_rescale: float = 0.7,
-    ss_sampling_steps: int = 12,
+    ss_sampling_steps: int = 16,
     ss_rescale_t: float = 5.0,
     shape_slat_guidance_strength: float = 7.5,
     shape_slat_guidance_rescale: float = 0.5,
-    shape_slat_sampling_steps: int = 12,
+    shape_slat_sampling_steps: int = 16,
     shape_slat_rescale_t: float = 3.0,
     tex_slat_guidance_strength: float = 1.0,
     tex_slat_guidance_rescale: float = 0.0,
-    tex_slat_sampling_steps: int = 12,
+    tex_slat_sampling_steps: int = 16,
     tex_slat_rescale_t: float = 3.0,
     mesh_scale: float = 1.0,
     extend_pixel: int = 0,
     image_resolution: int = 512,
-    max_num_tokens: int = 49152,
-    decimation_target: int = 1000000,
+    max_num_tokens: int = 32768,
+    decimation_target: int = 300000,
     target_resolution: int = 1536,
     texture_size: int = 4096,
     model_path: str = MODEL_PATH,
     device: str = "auto",
+    low_vram: bool = True,
     enable_mps_fallback: bool = True,
 ):
     device_obj = resolve_device(device)
@@ -262,7 +265,7 @@ def run_inference(
     print(f"[Device] Using {describe_device(device_obj)}")
 
     # Load models
-    pipeline = init_pipeline(model_path, device=device_obj)
+    pipeline = init_pipeline(model_path, device=device_obj, low_vram=low_vram)
 
     print("[MoGe-2] Loading model for camera estimation...")
     moge_model = load_moge_model(device=device_obj)
@@ -385,7 +388,7 @@ def run_inference(
 
     # Export
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    glb.export(output_path, extension_webp=True)
+    glb.export(output_path, extension_webp=False)
     print(f"[Done] GLB saved to: {output_path}")
 
 
@@ -396,10 +399,14 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--model_path", type=str, default=MODEL_PATH, help="Model path or HuggingFace repo")
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "cuda:0", "mps", "metal", "cpu"], help="Runtime device")
-    parser.add_argument("--decimation_target", type=int, default=1000000, help="Optional low-poly target face count; 0 keeps full detail")
+    parser.add_argument("--decimation_target", type=int, default=300000, help="Optional low-poly target face count; 0 keeps full detail")
     parser.add_argument("--target_resolution", type=int, default=1536, choices=[1024, 1536], help="Pixal3D cascade target resolution")
-    parser.add_argument("--max_num_tokens", type=int, default=49152, help="Maximum high-resolution sparse tokens before lowering the cascade resolution")
+    parser.add_argument("--max_num_tokens", type=int, default=32768, help="Maximum high-resolution sparse tokens before lowering the cascade resolution")
+    parser.add_argument("--ss_sampling_steps", type=int, default=16, help="Sparse-structure sampling steps")
+    parser.add_argument("--shape_sampling_steps", type=int, default=16, help="Shape latent sampling steps")
+    parser.add_argument("--tex_sampling_steps", type=int, default=16, help="Texture latent sampling steps")
     parser.add_argument("--texture_size", type=int, default=4096, help="CUDA o_voxel PBR texture size")
+    parser.add_argument("--low_vram", action=argparse.BooleanOptionalAction, default=True, help="Use staged CPU/GPU placement for lower VRAM peaks")
     parser.add_argument("--disable_mps_fallback", action="store_true", help="Disable PyTorch MPS CPU fallback")
 
     args = parser.parse_args()
@@ -413,6 +420,10 @@ if __name__ == "__main__":
         decimation_target=args.decimation_target,
         target_resolution=args.target_resolution,
         max_num_tokens=args.max_num_tokens,
+        ss_sampling_steps=args.ss_sampling_steps,
+        shape_slat_sampling_steps=args.shape_sampling_steps,
+        tex_slat_sampling_steps=args.tex_sampling_steps,
         texture_size=args.texture_size,
+        low_vram=args.low_vram,
         enable_mps_fallback=not args.disable_mps_fallback,
     )

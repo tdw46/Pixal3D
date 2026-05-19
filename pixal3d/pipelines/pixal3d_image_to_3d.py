@@ -169,7 +169,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             if self.rembg_model is not None:
                 self.rembg_model.to(device)
 
-    def preprocess_image(self, input: Image.Image, bg_color: tuple = (0, 0, 0)) -> Image.Image:
+    def preprocess_image(self, input: Image.Image, bg_color: tuple = (127, 127, 127)) -> Image.Image:
         """
         Preprocess the input image.
 

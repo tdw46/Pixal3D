@@ -1679,10 +1679,14 @@ def run_worker(
     seed: int,
     model_path: str,
     device: str = "auto",
-    decimation_target: int = 1000000,
+    decimation_target: int = 300000,
     target_resolution: int = 1536,
-    max_num_tokens: int = 49152,
+    max_num_tokens: int = 32768,
+    ss_sampling_steps: int = 16,
+    shape_sampling_steps: int = 16,
+    tex_sampling_steps: int = 16,
     texture_size: int = 4096,
+    low_vram: bool = True,
     enable_mps_fallback: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
@@ -1711,9 +1715,16 @@ def run_worker(
         str(target_resolution),
         "--max_num_tokens",
         str(max_num_tokens),
+        "--ss_sampling_steps",
+        str(ss_sampling_steps),
+        "--shape_sampling_steps",
+        str(shape_sampling_steps),
+        "--tex_sampling_steps",
+        str(tex_sampling_steps),
         "--texture_size",
         str(texture_size),
     ]
+    command.append("--low_vram" if low_vram else "--no-low_vram")
     if not enable_mps_fallback:
         command.append("--disable_mps_fallback")
     return subprocess.run(command, capture_output=True, text=True, check=False, env=env)

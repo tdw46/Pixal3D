@@ -38,7 +38,7 @@ HTML = """
     input, select { box-sizing: border-box; width: 100%; border: 1px solid #3a414d; background: #101218; color: #f3f5f8; border-radius: 6px; padding: 10px; }
     .row { display: grid; grid-template-columns: 1fr 116px; gap: 12px; align-items: end; }
     .split { display: grid; grid-template-columns: 1fr 110px 130px; gap: 12px; align-items: end; }
-    .split.options { grid-template-columns: 1fr 1fr 1fr; }
+    .split.options { grid-template-columns: repeat(3, 1fr); }
     .actions { margin-top:18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .toggle { display:flex; align-items:center; gap:8px; color:#c7d0dd; font-size:13px; }
     .toggle input { width:auto; }
@@ -100,8 +100,18 @@ HTML = """
     </div>
     <div class="split options">
       <div>
+        <label>Quality profile</label>
+        <select id="qualityProfile" onchange="applyProfile()">
+          <option value="rtx24" selected>24GB Best</option>
+          <option value="balanced">Balanced</option>
+          <option value="preview">Preview</option>
+          <option value="try1536">1536 Trial</option>
+          <option value="max1536">1536 Max</option>
+        </select>
+      </div>
+      <div>
         <label>Low-poly face target</label>
-        <input id="decimationTarget" type="number" value="1000000" min="0" step="1000">
+        <input id="decimationTarget" type="number" value="300000" min="0" step="1000">
       </div>
       <div>
         <label>Target resolution</label>
@@ -109,6 +119,14 @@ HTML = """
           <option value="1024">1024</option>
           <option value="1536" selected>1536</option>
         </select>
+      </div>
+      <div>
+        <label>Sparse tokens</label>
+        <input id="maxTokens" type="number" value="32768" min="16384" max="131072" step="1024">
+      </div>
+      <div>
+        <label>Sampling steps</label>
+        <input id="samplingSteps" type="number" value="16" min="1" max="50" step="1">
       </div>
       <div>
         <label>PBR texture size</label>
@@ -124,6 +142,7 @@ HTML = """
       <button class="secondary" onclick="status()">Check Runtime</button>
       <button id="prepareButton" class="secondary" onclick="prepareModels()">Prepare Models</button>
       <label class="toggle"><input id="importAfter" type="checkbox" checked> Import into Blender</label>
+      <label class="toggle"><input id="lowVram" type="checkbox" checked> Low VRAM</label>
       <label class="toggle"><input id="mpsFallback" type="checkbox" checked> Allow unsupported-op CPU fallback</label>
     </div>
     <div id="state" class="status"></div>
@@ -159,6 +178,24 @@ HTML = """
       document.getElementById('generateButton').disabled = running;
       document.getElementById('state').textContent = running ? 'Generation running...' : '';
       document.body.classList.toggle('is-running', running);
+    }
+
+    function applyProfile() {
+      const profiles = {
+        rtx24: { resolution: 1536, tokens: 32768, steps: 16, decimation: 300000, texture: 4096, lowVram: true },
+        balanced: { resolution: 1024, tokens: 32768, steps: 12, decimation: 200000, texture: 2048, lowVram: true },
+        preview: { resolution: 1024, tokens: 16384, steps: 8, decimation: 100000, texture: 1024, lowVram: true },
+        try1536: { resolution: 1536, tokens: 32768, steps: 16, decimation: 300000, texture: 4096, lowVram: true },
+        max1536: { resolution: 1536, tokens: 49152, steps: 16, decimation: 300000, texture: 4096, lowVram: true }
+      };
+      const value = document.getElementById('qualityProfile').value;
+      const profile = profiles[value] || profiles.rtx24;
+      document.getElementById('targetResolution').value = String(profile.resolution);
+      document.getElementById('maxTokens').value = String(profile.tokens);
+      document.getElementById('samplingSteps').value = String(profile.steps);
+      document.getElementById('decimationTarget').value = String(profile.decimation);
+      document.getElementById('textureSize').value = String(profile.texture);
+      document.getElementById('lowVram').checked = profile.lowVram;
     }
 
     async function chooseImage() {
@@ -225,8 +262,11 @@ HTML = """
         device: document.getElementById('device').value || 'auto',
         decimation_target: parseInt(document.getElementById('decimationTarget').value || '0', 10),
         target_resolution: parseInt(document.getElementById('targetResolution').value || '1536', 10),
+        max_num_tokens: parseInt(document.getElementById('maxTokens').value || '32768', 10),
+        sampling_steps: parseInt(document.getElementById('samplingSteps').value || '16', 10),
         texture_size: parseInt(document.getElementById('textureSize').value || '4096', 10),
         import_after_generate: document.getElementById('importAfter').checked,
+        low_vram: document.getElementById('lowVram').checked,
         enable_mps_fallback: document.getElementById('mpsFallback').checked
       };
     }
@@ -272,13 +312,18 @@ HTML = """
         device: document.getElementById('device').value || 'auto',
         decimation_target: parseInt(document.getElementById('decimationTarget').value || '0', 10),
         target_resolution: parseInt(document.getElementById('targetResolution').value || '1536', 10),
+        max_num_tokens: parseInt(document.getElementById('maxTokens').value || '32768', 10),
+        sampling_steps: parseInt(document.getElementById('samplingSteps').value || '16', 10),
         texture_size: parseInt(document.getElementById('textureSize').value || '4096', 10)
       };
       log('Running Pixal3D...');
       log(await pywebview.api.generate(payload));
     }
 
-    window.addEventListener('pywebviewready', syncPrepareButton);
+    window.addEventListener('pywebviewready', () => {
+      applyProfile();
+      syncPrepareButton();
+    });
   </script>
 </body>
 </html>
@@ -408,11 +453,13 @@ class Pixal3DApi:
         model = str(payload.get("model", "")).strip() or "TencentARC/Pixal3D"
         seed = int(payload.get("seed", 42) or 42)
         device = str(payload.get("device", "auto") or "auto")
-        decimation_target = max(0, int(payload.get("decimation_target", 1000000) or 1000000))
+        decimation_target = max(0, int(payload.get("decimation_target", 300000) or 300000))
         target_resolution = int(payload.get("target_resolution", 1536) or 1536)
         if target_resolution not in {1024, 1536}:
             target_resolution = 1536
-        max_num_tokens = int(payload.get("max_num_tokens", 49152) or 49152)
+        max_num_tokens = int(payload.get("max_num_tokens", 32768) or 32768)
+        sampling_steps = max(1, int(payload.get("sampling_steps", 16) or 16))
+        low_vram = bool(payload.get("low_vram", True))
         texture_size = max(256, int(payload.get("texture_size", 4096) or 4096))
         if not image or not Path(image).is_file():
             return "Choose an existing input image.", None, None, {}
@@ -461,9 +508,16 @@ class Pixal3DApi:
             str(target_resolution),
             "--max_num_tokens",
             str(max_num_tokens),
+            "--ss_sampling_steps",
+            str(sampling_steps),
+            "--shape_sampling_steps",
+            str(sampling_steps),
+            "--tex_sampling_steps",
+            str(sampling_steps),
             "--texture_size",
             str(texture_size),
         ]
+        command.append("--low_vram" if low_vram else "--no-low_vram")
         if not bool(payload.get("enable_mps_fallback", True)):
             command.append("--disable_mps_fallback")
         return None, output, command, env
@@ -480,10 +534,14 @@ class Pixal3DApi:
             f"  Output: {output}",
             f"  Model: {str(payload.get('model', '')).strip() or 'TencentARC/Pixal3D'}",
             f"  Seed: {int(payload.get('seed', 42) or 42)}",
-            f"  Low-poly face target: {int(payload.get('decimation_target', 1000000) or 1000000)}",
+            f"  Low-poly face target: {int(payload.get('decimation_target', 300000) or 300000)}",
             f"  Target resolution: {int(payload.get('target_resolution', 1536) or 1536)}",
-            f"  Max sparse tokens: {int(payload.get('max_num_tokens', 49152) or 49152)}",
+            f"  Max sparse tokens: {int(payload.get('max_num_tokens', 32768) or 32768)}",
+            f"  Sampling steps: {int(payload.get('sampling_steps', 16) or 16)}/"
+            f"{int(payload.get('sampling_steps', 16) or 16)}/"
+            f"{int(payload.get('sampling_steps', 16) or 16)}",
             f"  PBR texture size: {int(payload.get('texture_size', 4096) or 4096)}",
+            f"  Low-VRAM staged placement: {bool(payload.get('low_vram', True))}",
             f"  Device request: {device}",
             f"  Resolved backend: {backend.upper()}",
             f"  Import into Blender: {bool(payload.get('import_after_generate', True))}",
